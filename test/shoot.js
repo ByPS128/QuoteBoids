@@ -88,12 +88,22 @@ try {
   console.log("jazyk:", langBefore, "->", langState.lang, "|", langState.quote);
   const langOk = langState.lang !== langBefore;
 
+  // deep-link: ?lang=en&q=3 musí natvrdo vybrat třetí anglický citát
+  const page2 = await browser.newPage();
+  await page2.goto(url + "?lang=en&q=3");
+  await page2.waitForTimeout(1200);
+  const dl = await page2.evaluate(() => ({ lang, quote: quote.text }));
+  console.log("deep-link:", JSON.stringify(dl));
+  const dlOk = dl.lang === "en" && dl.quote === "I know that I know nothing.";
+  await page2.close();
+
   // verdikt se tiskne PŘED zavřením browseru — close() se systémovým
   // Chrome občas visí, proto je závoděný s timeoutem a pak tvrdý exit
   let fail = "";
   if (day < 0.95) fail = "přechod na den neproběhl, dayness=" + day;
   else if (!state2.done) fail = "quoteDoneAt nenastaveno";
   else if (!langOk) fail = "přepnutí jazyka neproběhlo";
+  else if (!dlOk) fail = "deep-link nevybral správný citát: " + JSON.stringify(dl);
   else if (errors.length) fail = "chyby v konzoli:\n" + errors.join("\n");
   console.log(fail ? "FAIL: " + fail : "SMOKE-OK");
 

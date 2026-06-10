@@ -25,7 +25,10 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
 
 ## Struktura
 
-- `index.html` — jen načte p5.js z CDN + `sketch.js`.
+- `index.html` — načte p5.js z CDN + `sketch.js?v=N` (cache-bust, zvyš N
+  při změně sketche), manifest a ikonu.
+- `manifest.webmanifest` + `icon.svg` — PWA („Přidat na plochu", standalone
+  režim); žádný service worker (schválně — cache invalidace by zlobila).
 - `sketch.js` — **veškerá logika v jednom souboru** (konvence autora).
   Pořadí: `CONFIG` → `QUOTES` → stavy `S` → globály → scéna/start →
   layout citátu → hrad → `class Bird` (update + kreslení) → citát/téma/
@@ -105,6 +108,30 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
 - **Den/noc** — `dayness` 0..1 plynule dojíždí k `dayTarget` za
   `modeTransitionMs`; všechny barvy přes `themeLerp(key)`. Noc = hvězdy +
   srpek měsíce, den = slunce s paprsky (crossfade). Výchozí je noc.
+- **Pérující větvička** — jeden tlumený oscilátor `perchSpring` (CONFIG
+  `perchSpring`); výchylka po délce násobená parabolou 4t(1−t) (konce visí
+  na háčcích). Dosednutí kopne dolů (`landKick`), vzlet nahoru
+  (`takeoffKick`), síla dle blízkosti středu. Sedící ptáčci se vezou
+  automaticky (čtou `perchSlotPos` každý snímek).
+- **Nebe (`drawSky`)** — noc: jednou za `sky.meteorMs*` přeletí meteor
+  (různá délka ohonu/rychlost, fade přes sin); den: pomalé obláčky +
+  jednou za čas **vzdálené hejno** ve volné V formaci, tlumenou barvou
+  (lerp text→bg), mávání = rozevírání „V" siluet.
+- **Peříčka** — `spawnFeathers`/`drawFeathers`; uvolní se NÁHODNĚ
+  (`feathers.dropChance` při položení, `perchChance` při dosednutí) —
+  záměrně ne vždy, ať se na ně divák těší. Snáší se se sin výkyvem.
+- **Život na hradě** — mrkání (`blinkAt`/`blinkUntil`, oko jako čárka)
+  a `updatePerchSwap()`: po složení citátu si jednou za `perch.swapMs*`
+  dva sedící ptáčci prohodí sloty (vzlet šikmo vzhůru → oblouček).
+- **Režim spořiče** — `updateAutoNext()`: po složení citátu a
+  `scene.autoNextMs` klidu (interakce odkládají přes `lastInteractionMs`)
+  sám spustí další citát. 0 = vypnuto.
+- **Deep-link** — `?lang=cs&q=N` (1-based) vybere konkrétní citát
+  (`applyUrlParams` v setup, `forcedQuoteIndex` jen pro první scénu);
+  `updateUrl()` drží adresní řádek aktuální (replaceState, na file://
+  ticho selže). Tlačítko „Zkopírovat odkaz" pod autorem (`uiRects.copy`,
+  existuje jen po složení) → `copyText` (clipboard API + execCommand
+  fallback pro file://) + toast.
 - **UI** — kreslené přímo na plátno (žádný DOM): přepínač zvuku (repráček —
   membrána se rozšiřuje DOPRAVA, špička vypadala jako šipka) + pill přepínač
   den/noc + tlačítko „Další citát"/"Next quote" + přepínač jazyka s vlajkou;

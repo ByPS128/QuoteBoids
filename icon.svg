@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Ikona aplikace: žlutý ptáček nesoucí písmeno na nočním nebi -->
+  <rect width="512" height="512" rx="96" fill="#0B1026"/>
+  <circle cx="92" cy="92" r="34" fill="#FDE68A"/>
+  <circle cx="116" cy="80" r="30" fill="#0B1026"/>
+  <circle cx="380" cy="120" r="5" fill="#FDE68A"/>
+  <circle cx="430" cy="200" r="3.5" fill="#FDE68A"/>
+  <circle cx="330" cy="70" r="3.5" fill="#FDE68A"/>
+  <circle cx="150" cy="210" r="3" fill="#FDE68A"/>
+  <!-- ptáček (boční pohled, letí doprava) -->
+  <ellipse cx="256" cy="240" rx="92" ry="50" fill="#FFD60A"/>
+  <ellipse cx="248" cy="256" rx="62" ry="26" fill="#FFF3B0"/>
+  <circle cx="338" cy="196" r="34" fill="#FFD60A"/>
+  <polygon points="368,188 368,206 400,197" fill="#FB8500"/>
+  <circle cx="348" cy="190" r="7" fill="#1E293B"/>
+  <!-- křídlo -->
+  <ellipse cx="220" cy="210" rx="64" ry="26" fill="#E0B400" transform="rotate(-28 220 210)"/>
+  <!-- ocásek -->
+  <polygon points="172,232 120,206 124,252" fill="#E0B400"/>
+  <!-- nesené písmeno -->
+  <line x1="244" y1="286" x2="238" y2="320" stroke="#E0B400" stroke-width="7"/>
+  <line x1="272" y1="286" x2="278" y2="320" stroke="#E0B400" stroke-width="7"/>
+  <text x="258" y="396" font-family="Georgia, serif" font-size="110" fill="#F1F5F9"
+        text-anchor="middle" font-weight="bold">A</text>
+</svg>

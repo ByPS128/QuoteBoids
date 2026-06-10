@@ -18,6 +18,37 @@ const CONFIG = {
     defaultMode: "night",          // "night" | "day" — výchozí je noc
     modeTransitionMs: 1200,        // délka plynulého přechodu den/noc
     starCount: 130,                // počet hvězd v nočním režimu
+    autoNextMs: 25000,             // režim spořiče: po složení citátu a tolika
+                                   // ms klidu se sám spustí další (0 = vypnuto)
+  },
+
+  // --- Nebe: vzácné odměny za dlouhé koukání ---
+  sky: {
+    meteorMsMin: 20000,            // min pauza mezi padajícími hvězdami (noc)
+    meteorMsMax: 55000,            // max pauza
+    meteorDurMs: 1200,             // jak dlouho meteor letí
+    cloudCount: 3,                 // počet pomalu plujících obláčků (den)
+    cloudAlpha: 36,                // průhlednost obláčků (jemné!)
+    flockMsMin: 25000,             // min pauza mezi přelety hejna v dálce (den)
+    flockMsMax: 60000,             // max pauza
+    flockSizeMin: 7,               // kolik ptáků v dálkovém hejnu (min)
+    flockSizeMax: 13,              // (max)
+  },
+
+  // --- Peříčka při dopadu písmene (vzácná, ať se na ně divák těší) ---
+  feathers: {
+    dropChance: 0.3,               // šance, že se při položení písmene uvolní
+    perchChance: 0.25,             // šance při dosednutí na hrad
+    durMsMin: 2200,                // jak dlouho se peříčko snáší (min)
+    durMsMax: 3800,                // (max)
+  },
+
+  // --- Pérování větvičky (tlumený oscilátor) ---
+  perchSpring: {
+    stiffness: 0.025,              // tuhost pružiny (vyšší = rychlejší kmit)
+    damping: 0.06,                 // útlum (vyšší = dřív se uklidní)
+    landKick: 1.0,                 // impuls dolů při dosednutí ptáčka
+    takeoffKick: -0.6,             // impuls nahoru při vzletu
   },
 
   // --- Ptáčci: počet a chování ---
@@ -84,6 +115,11 @@ const CONFIG = {
     headTurnMsMax: 4000,           // jak často (max)
     stretchChance: 0.15,           // šance na protažení při každém idle cyklu
     stepShuffleAmplitude: 2,       // amplituda přešlapování (px)
+    blinkMsMin: 2000,              // jak často ptáček mrkne (min)
+    blinkMsMax: 7000,              // (max)
+    blinkDurMs: 130,               // jak dlouho je oko zavřené
+    swapMsMin: 15000,              // jak často si dva ptáčci prohodí místa (min)
+    swapMsMax: 40000,              // (max)
   },
 
   // --- Hrad (bydýlko) ---
@@ -246,8 +282,10 @@ QUOTES.en = [
 // Jazyk (čeština / angličtina) — citáty i texty UI
 // =====================================================================
 const STRINGS = {
-  cs: { next: "Další citát", langName: "Čeština" },
-  en: { next: "Next quote", langName: "English" },
+  cs: { next: "Další citát", langName: "Čeština",
+        copyLink: "Zkopírovat odkaz", copied: "Odkaz zkopírován ✓" },
+  en: { next: "Next quote", langName: "English",
+        copyLink: "Copy link", copied: "Link copied ✓" },
 };
 
 // Detekce: uložená volba má přednost, jinak jazyk prohlížeče
@@ -267,6 +305,46 @@ let lang = detectLang();
 function setLang(l) {
   lang = l;
   try { localStorage.setItem("quoteboids-lang", l); } catch (e) { /* viz výše */ }
+}
+
+// =====================================================================
+// Deep-link — konkrétní citát jde poslat odkazem: ?lang=cs&q=5
+// (q je 1-based index v sadě daného jazyka). Adresní řádek se při každé
+// nové scéně aktualizuje přes replaceState, takže stačí zkopírovat URL —
+// nebo použít tlačítko, které se objeví pod autorem po složení citátu.
+// =====================================================================
+let forcedQuoteIndex = null; // vyžádaný citát z URL (jen pro první scénu)
+
+function applyUrlParams() {
+  try {
+    const p = new URLSearchParams(location.search);
+    const l = p.get("lang");
+    if (l === "cs" || l === "en") setLang(l);
+    const q = parseInt(p.get("q"), 10);
+    if (q >= 1 && q <= QUOTES[lang].length) forcedQuoteIndex = q - 1;
+  } catch (e) { /* bez URL parametrů se prostě losuje */ }
+}
+
+// Zapiš aktuální citát do adresního řádku (na file:// to může být zakázané).
+function updateUrl() {
+  try {
+    const q = QUOTES[lang].indexOf(quote) + 1;
+    history.replaceState(null, "", "?lang=" + lang + "&q=" + q);
+  } catch (e) { /* nevadí */ }
+}
+
+// Kopírování do schránky s fallbackem pro nezabezpečený kontext (file://).
+function copyText(t) {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(t).catch(() => {});
+  } else {
+    const ta = document.createElement("textarea");
+    ta.value = t;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); } catch (e) { /* smůla */ }
+    document.body.removeChild(ta);
+  }
 }
 
 // =====================================================================
@@ -299,7 +377,11 @@ let dayness = 0;         // 0 = noc, 1 = den (interpolovaná hodnota)
 let dayTarget = 0;       // cílová hodnota dayness (0/1)
 let stars = [];          // {x, y, r, phase} — hvězdy nočního nebe
 let loadedFont = null;   // font načtený přes loadFont() (pokud CONFIG.quote.fontFile)
-let uiRects = {};        // hitboxy ovládacích prvků {toggle, next}
+let uiRects = {};        // hitboxy ovládacích prvků {toggle, next, sound, lang, copy}
+let nextSwapAt = 0;      // kdy si dva sedící ptáčci prohodí místa (0 = neplánováno)
+let lastInteractionMs = 0; // poslední interakce uživatele (režim spořiče)
+let toastText = "";      // krátká potvrzovací hláška (zkopírovaný odkaz)
+let toastUntil = 0;      // dokdy je toast vidět
 
 function preload() {
   // Volitelný vlastní font — když není dodán soubor, zůstane web-safe z CONFIG.
@@ -311,6 +393,10 @@ function setup() {
   dayTarget = CONFIG.scene.defaultMode === "day" ? 1 : 0;
   dayness = dayTarget;
   buildStars();
+  buildClouds();
+  nextMeteorAt = millis() + random(CONFIG.sky.meteorMsMin, CONFIG.sky.meteorMsMax);
+  nextFlockAt = millis() + random(CONFIG.sky.flockMsMin, CONFIG.sky.flockMsMax);
+  applyUrlParams();
   startScene(true);
 }
 
@@ -325,12 +411,20 @@ function startScene(firstRun) {
   // (musí se zachytit PŘED výběrem nového citátu a přepočtem layoutu)
   if (!firstRun) captureOutgoing();
 
-  // vyber nový citát z aktuálního jazyka (při resetu jiný než aktuální)
+  // vyber nový citát z aktuálního jazyka (při resetu jiný než aktuální);
+  // deep-link z URL má přednost (jen poprvé)
   const pool = QUOTES[lang];
   let q;
-  do { q = random(pool); } while (pool.length > 1 && quote && q === quote);
+  if (forcedQuoteIndex !== null) {
+    q = pool[forcedQuoteIndex];
+    forcedQuoteIndex = null;
+  } else {
+    do { q = random(pool); } while (pool.length > 1 && quote && q === quote);
+  }
   quote = q;
   quoteDoneAt = 0;
+  nextSwapAt = 0;       // prohazování míst se plánuje až po složení citátu
+  updateUrl();
 
   computeLayout();
 
@@ -440,14 +534,34 @@ function perchGeom() {
   return { x0, x1, y: pb.marginTop + 40 };
 }
 
+// --- Pérování větvičky -------------------------------------------------
+// Jeden tlumený oscilátor pro celou větvičku; výchylka se po délce násobí
+// parabolou 4t(1-t), takže konce (zavěšené háčky) drží a střed houpe.
+// Dosednutí ptáčka větvičku kopne dolů, vzlet nahoru — síla podle toho,
+// jak blízko středu ptáček sedí.
+let perchSpring = { y: 0, v: 0 };
+
+function perchSpringKick(amount, slot) {
+  const t = (slot + 0.5) / CONFIG.birds.count;
+  perchSpring.v += amount * 4 * t * (1 - t);
+}
+
+function updatePerchSpring(f) {
+  const S = CONFIG.perchSpring;
+  const a = -S.stiffness * perchSpring.y - S.damping * perchSpring.v;
+  perchSpring.v += a * f;
+  perchSpring.y += perchSpring.v * f;
+}
+
 // Pozice sedátka pro ptáčka s daným slotem (sloty rozmístěné rovnoměrně).
 function perchSlotPos(slot) {
   const g = perchGeom();
   const n = CONFIG.birds.count;
   const t = (slot + 0.5) / n;
   const x = lerp(g.x0, g.x1, t);
-  // prohnutí větvičky — parabola s maximem uprostřed
-  const y = g.y + CONFIG.perchBar.sag * 4 * t * (1 - t);
+  // prohnutí větvičky (parabola) + aktuální výchylka pérování
+  const bend = 4 * t * (1 - t);
+  const y = g.y + CONFIG.perchBar.sag * bend + perchSpring.y * bend;
   return { x, y };
 }
 
@@ -457,11 +571,13 @@ function drawPerchBar() {
   stroke(red(c), green(c), blue(c), 170);
   strokeWeight(3);
   noFill();
-  // prohnutá větvička + dva háčky na koncích (drátek zavěšený do scény)
+  // prohnutá pérující větvička + dva háčky na koncích (zavěšený drátek)
   beginShape();
   for (let i = 0; i <= 20; i++) {
     const t = i / 20;
-    vertex(lerp(g.x0, g.x1, t), g.y + CONFIG.perchBar.sag * 4 * t * (1 - t));
+    const bend = 4 * t * (1 - t);
+    vertex(lerp(g.x0, g.x1, t),
+      g.y + (CONFIG.perchBar.sag + perchSpring.y) * bend);
   }
   endShape();
   line(g.x0, g.y, g.x0 - 8, g.y - 14);
@@ -494,6 +610,8 @@ class Bird {
     // vlastní výška hlasu (každý ptáček cvrliká jinak vysoko)
     this.chirpPitch = random(CONFIG.audio.chirpPitchMin, CONFIG.audio.chirpPitchMax);
     this.chirpAt = 0;                     // kdy si příště zacvrliká na hradě
+    this.blinkAt = millis() + random(CONFIG.perch.blinkMsMin, CONFIG.perch.blinkMsMax);
+    this.blinkUntil = 0;                  // dokdy je oko zavřené (mrknutí)
     // plynule dojížděné animační parametry (cíle určuje stav, viz update)
     this.tilt = CONFIG.wings.bodyTiltCruise; // aktuální náklon těla
     this.heading = 0;                     // aktuální úhel letu (vyhlazený)
@@ -527,6 +645,10 @@ class Bird {
 
   // Naplánuje odlet doleva mimo obrazovku; delayMs zpozdí návrat (užito při resetu).
   beginDeparting(extraWaitMs = 0) {
+    // vzlet z větvičky ji odpruží nahoru
+    if (this.state === S.PERCHED || this.state === S.STRETCHING) {
+      perchSpringKick(CONFIG.perchSpring.takeoffKick, this.slot);
+    }
     this.exit = createVector(-80, random(height * 0.15, height * 0.85));
     this.extraWait = extraWaitMs;
     this.setState(S.TURNING);
@@ -660,6 +782,12 @@ class Bird {
           this.letter.dropStart = now;
           this.letter = null;
           sfxDrop();
+          // vzácně se při upuštění uvolní peříčko či dvě — schválně ne vždy,
+          // ať je to drobnost, na kterou se divák těší
+          if (random() < CONFIG.feathers.dropChance) {
+            spawnFeathers(this.pos.x, this.pos.y + 4, this.color,
+              random() < 0.4 ? 2 : 1);
+          }
           this.setState(S.DROPPING);
           checkQuoteDone();
         }
@@ -729,6 +857,11 @@ class Bird {
         if (d < FL.snapDist && this.vel.mag() < 1.2) {
           this.pos.set(target.x, target.y);
           this.vel.set(0, 0);
+          // dosednutí rozhoupe větvičku; vzácně se uvolní peříčko
+          perchSpringKick(CONFIG.perchSpring.landKick, this.slot);
+          if (random() < CONFIG.feathers.perchChance) {
+            spawnFeathers(this.pos.x, this.pos.y, this.color, 1);
+          }
           this.setState(S.PERCHED);
           this.headDir = random() < 0.5 ? -1 : 1;
           this.headTurnAt = now + random(CONFIG.perch.headTurnMsMin, CONFIG.perch.headTurnMsMax);
@@ -760,6 +893,11 @@ class Bird {
         if (now >= this.chirpAt) {
           sfxChirp(this.chirpPitch);
           this.chirpAt = now + random(CONFIG.audio.perchChirpMsMin, CONFIG.audio.perchChirpMsMax);
+        }
+        // mrkání
+        if (now >= this.blinkAt) {
+          this.blinkUntil = now + CONFIG.perch.blinkDurMs;
+          this.blinkAt = now + random(CONFIG.perch.blinkMsMin, CONFIG.perch.blinkMsMax);
         }
         break;
 
@@ -965,8 +1103,15 @@ class Bird {
     const bx = hx + this.headDir * sh.headRadius * 0.75;
     triangle(bx, headY - 2.2, bx, headY + 2.2,
              bx + this.headDir * sh.beakLength, headY + (st > 0.3 ? -2 : 0.5));
-    fill(20);
-    circle(hx + this.headDir * 2.5, headY - 1.5, 3);
+    // oko: občas mrkne (krátká vodorovná čárka místo kuličky)
+    if (millis() < this.blinkUntil) {
+      stroke(20); strokeWeight(1.4);
+      line(hx + this.headDir * 1.3, headY - 1.5, hx + this.headDir * 3.7, headY - 1.5);
+      noStroke();
+    } else {
+      fill(20);
+      circle(hx + this.headDir * 2.5, headY - 1.5, 3);
+    }
 
     pop();
   }
@@ -1005,6 +1150,26 @@ function drawQuote() {
     textSize(CONFIG.quote.authorFontSize);
     fill(red(col), green(col), blue(col), a * 0.85);
     text("— " + quote.author, authorPos.x, authorPos.y);
+
+    // tlačítko „Zkopírovat odkaz" — objeví se po doznění autora; zkopíruje
+    // deep-link na právě složený citát (?lang=…&q=…)
+    const ba = constrain((now - quoteDoneAt - CONFIG.timing.authorFadeMs) / 600, 0, 1);
+    if (ba > 0) {
+      textFont("sans-serif");
+      textSize(12);
+      const clabel = STRINGS[lang].copyLink;
+      const cw = textWidth(clabel) + 24;
+      const ch = 24;
+      const cx0 = width / 2 - cw / 2;
+      const cy0 = authorPos.y + CONFIG.quote.authorFontSize * 1.5;
+      uiRects.copy = { x: cx0, y: cy0, w: cw, h: ch };
+      fill(red(col), green(col), blue(col), 36 * ba);
+      rect(cx0, cy0, cw, ch, ch / 2);
+      fill(red(col), green(col), blue(col), 185 * ba);
+      text(clabel, width / 2, cy0 + ch / 2 - 1);
+    }
+  } else {
+    delete uiRects.copy; // mimo složený citát tlačítko neexistuje (ani hitbox)
   }
 }
 
@@ -1165,6 +1330,173 @@ function drawBackdrop() {
     noStroke();
     fill(red(sc), green(sc), blue(sc), 240 * sunA);
     circle(cx, cy, R * 2);
+  }
+}
+
+// =====================================================================
+// Nebe — vzácné odměny za dlouhé koukání
+// Noc: jednou za čas tiše přeletí padající hvězda (meteor).
+// Den: pomalu plující obláčky + jednou za čas v dálce přeletí hejno
+//      ptáků — jen tlumenou barvou, jako siluety na obzoru.
+// =====================================================================
+let meteor = null, nextMeteorAt = 0;
+let clouds = [];
+let distantFlock = null, nextFlockAt = 0;
+
+function buildClouds() {
+  clouds = [];
+  for (let i = 0; i < CONFIG.sky.cloudCount; i++) {
+    clouds.push({
+      x: random(width), y: random(height * 0.05, height * 0.3),
+      s: random(0.7, 1.4), v: random(0.06, 0.18),
+    });
+  }
+}
+
+function drawSky(f) {
+  const now = millis();
+  const SK = CONFIG.sky;
+  const nightA = 1 - dayness;
+
+  // --- meteor (jen v noci) ---
+  if (!meteor && now >= nextMeteorAt && nightA > 0.5) {
+    // různě dlouhé a různě rychlé přelety, vždy šikmo dolů
+    meteor = {
+      x: random(width * 0.25, width * 0.95),
+      y: random(height * 0.04, height * 0.35),
+      vx: -random(4, 7), vy: random(1.5, 3),
+      tail: random(40, 110), t0: now,
+    };
+  }
+  if (meteor) {
+    const p = (now - meteor.t0) / SK.meteorDurMs;
+    if (p >= 1) {
+      meteor = null;
+      nextMeteorAt = now + random(SK.meteorMsMin, SK.meteorMsMax);
+    } else {
+      meteor.x += meteor.vx * f;
+      meteor.y += meteor.vy * f;
+      const a = Math.sin(p * PI) * nightA; // plynule se rozsvítí a zhasne
+      const ac = color(CONFIG.theme.night.accent);
+      const dirX = -meteor.vx, dirY = -meteor.vy;
+      const len = Math.hypot(dirX, dirY);
+      // ohon z pár segmentů s klesající alfou
+      for (let i = 0; i < 6; i++) {
+        const t0 = i / 6, t1 = (i + 1) / 6;
+        stroke(red(ac), green(ac), blue(ac), 200 * a * (1 - t0));
+        strokeWeight(1.8 * (1 - t0) + 0.3);
+        line(meteor.x + dirX / len * meteor.tail * t0,
+             meteor.y + dirY / len * meteor.tail * t0,
+             meteor.x + dirX / len * meteor.tail * t1,
+             meteor.y + dirY / len * meteor.tail * t1);
+      }
+      noStroke();
+      fill(255, 255, 240, 230 * a);
+      circle(meteor.x, meteor.y, 3);
+    }
+  }
+
+  // --- obláčky (jen ve dne, jemné) ---
+  if (dayness > 0.02) {
+    noStroke();
+    for (const c of clouds) {
+      c.x += c.v * f;
+      if (c.x > width + 120) { c.x = -120; c.y = random(height * 0.05, height * 0.3); }
+      fill(255, SK.cloudAlpha * dayness);
+      ellipse(c.x, c.y, 95 * c.s, 26 * c.s);
+      ellipse(c.x - 32 * c.s, c.y + 6 * c.s, 60 * c.s, 18 * c.s);
+      ellipse(c.x + 36 * c.s, c.y + 4 * c.s, 70 * c.s, 20 * c.s);
+      ellipse(c.x + 6 * c.s, c.y - 11 * c.s, 55 * c.s, 20 * c.s);
+    }
+  }
+
+  // --- vzdálené hejno (jen ve dne) ---
+  if (!distantFlock && now >= nextFlockAt && dayness > 0.5) {
+    const dir = random() < 0.5 ? 1 : -1;
+    const n = Math.floor(random(SK.flockSizeMin, SK.flockSizeMax + 1));
+    const members = [];
+    // volná V formace: střídavě nahoru/dolů od vedoucího, s rozptylem
+    for (let i = 0; i < n; i++) {
+      const rank = Math.ceil(i / 2);
+      const side = i % 2 === 0 ? 1 : -1;
+      members.push({
+        dx: -rank * 13 * dir + random(-4, 4),
+        dy: rank * side * 5 + random(-3, 3),
+        phase: random(TWO_PI),
+      });
+    }
+    distantFlock = {
+      x: dir > 0 ? -80 - n * 7 : width + 80 + n * 7,
+      y: random(height * 0.08, height * 0.32),
+      dir, v: random(0.55, 0.85), members,
+    };
+  }
+  if (distantFlock) {
+    const fl = distantFlock;
+    fl.x += fl.v * fl.dir * f;
+    if ((fl.dir > 0 && fl.x > width + 120) || (fl.dir < 0 && fl.x < -120)) {
+      distantFlock = null;
+      nextFlockAt = now + random(SK.flockMsMin, SK.flockMsMax);
+    } else {
+      // tlumená barva — jako siluety ptáků v dálce
+      const tc = themeLerp("text");
+      const bg = themeLerp("bg");
+      const mc = lerpColor(tc, bg, 0.45);
+      stroke(red(mc), green(mc), blue(mc), 150 * dayness);
+      strokeWeight(1.4);
+      noFill();
+      for (const m of fl.members) {
+        const bx = fl.x + m.dx;
+        const by = fl.y + m.dy + Math.sin(now * 0.0018 + m.phase) * 2;
+        // mávání v dálce: rozevírání/zavírání "V" siluety
+        const flap = Math.sin(now * 0.012 + m.phase) * 3;
+        line(bx - 4 * fl.dir, by - flap, bx, by);
+        line(bx, by, bx + 4 * fl.dir, by - flap);
+      }
+      noStroke();
+    }
+  }
+}
+
+// =====================================================================
+// Peříčka — vzácně se snesou při položení písmene / dosednutí na hrad
+// =====================================================================
+let feathers = [];
+
+function spawnFeathers(x, y, col, n) {
+  for (let i = 0; i < n; i++) {
+    feathers.push({
+      x: x + random(-4, 4), y: y + random(-2, 2),
+      vx: random(-0.3, 0.3), vy: random(0.15, 0.4),
+      swayAmp: random(7, 15), phase: random(TWO_PI),
+      rot: random(-0.5, 0.5),
+      t0: millis(), durMs: random(CONFIG.feathers.durMsMin, CONFIG.feathers.durMsMax),
+      col: lerpColor(col, color(255), 0.35),
+    });
+  }
+}
+
+function drawFeathers(f) {
+  const now = millis();
+  for (let i = feathers.length - 1; i >= 0; i--) {
+    const fe = feathers[i];
+    const p = (now - fe.t0) / fe.durMs;
+    if (p >= 1) { feathers.splice(i, 1); continue; }
+    fe.x += fe.vx * f;
+    fe.y += fe.vy * f;
+    const rx = fe.x + Math.sin(now * 0.004 + fe.phase) * fe.swayAmp * p;
+    const rot = fe.rot + Math.sin(now * 0.003 + fe.phase) * 0.7;
+    push();
+    translate(rx, fe.y);
+    rotate(rot);
+    noStroke();
+    fill(red(fe.col), green(fe.col), blue(fe.col), 220 * (1 - p));
+    ellipse(0, 0, 7, 3);                       // pírko
+    stroke(red(fe.col), green(fe.col), blue(fe.col), 160 * (1 - p));
+    strokeWeight(0.8);
+    line(-4, 0, 4, 0);                          // brk
+    pop();
+    noStroke();
   }
 }
 
@@ -1333,11 +1665,22 @@ function drawUI() {
   text(llabel, lx + 11 + flagW + 7, ly + U.buttonH / 2 - 1);
 
   // kurzor ruky nad klikacími prvky
-  const over = ["toggle", "next", "sound", "lang"].some(k => {
-    const r = uiRects[k];
-    return mouseX >= r.x && mouseX <= r.x + r.w && mouseY >= r.y && mouseY <= r.y + r.h;
-  });
+  const over = Object.values(uiRects).some(r =>
+    mouseX >= r.x && mouseX <= r.x + r.w && mouseY >= r.y && mouseY <= r.y + r.h);
   cursor(over ? HAND : ARROW);
+
+  // toast — krátké potvrzení (např. zkopírovaný odkaz), dole uprostřed
+  if (millis() < toastUntil) {
+    const ta = constrain((toastUntil - millis()) / 400, 0, 1); // dozní fade-outem
+    textFont("sans-serif");
+    textSize(13);
+    const tw = textWidth(toastText) + 28;
+    fill(red(tc), green(tc), blue(tc), 60 * ta);
+    rect(width / 2 - tw / 2, height - 64, tw, 30, 15);
+    fill(red(tc), green(tc), blue(tc), 230 * ta);
+    textAlign(CENTER, CENTER);
+    text(toastText, width / 2, height - 64 + 14);
+  }
 }
 
 // Vlajka kreslená z primitiv (žádné obrázky): česká, zjednodušený Union Jack.
@@ -1372,12 +1715,18 @@ function drawFlag(l, x, y, w, h) {
 function mousePressed() {
   // jakékoli gesto smí rozjet audio (autoplay policy) — když je zvuk zapnutý
   audioEnsure();
+  lastInteractionMs = millis(); // odklad režimu spořiče
   for (const [k, r] of Object.entries(uiRects)) {
     if (mouseX >= r.x && mouseX <= r.x + r.w && mouseY >= r.y && mouseY <= r.y + r.h) {
       if (k === "toggle") dayTarget = 1 - dayTarget;
       if (k === "next") startScene(false);
       if (k === "sound") { soundOn = !soundOn; audioEnsure(); }
       if (k === "lang") { setLang(lang === "cs" ? "en" : "cs"); startScene(false); }
+      if (k === "copy") {
+        copyText(location.href);
+        toastText = STRINGS[lang].copied;
+        toastUntil = millis() + 2000;
+      }
       return;
     }
   }
@@ -1385,6 +1734,7 @@ function mousePressed() {
 
 function keyPressed() {
   audioEnsure(); // gesto uživatele — případné rozjetí audia
+  lastInteractionMs = millis(); // odklad režimu spořiče
   if (key === "m" || key === "M") dayTarget = 1 - dayTarget;          // den/noc
   if (key === "n" || key === "N") startScene(false);                  // další citát
   if (key === "z" || key === "Z") { soundOn = !soundOn; audioEnsure(); } // zvuk
@@ -1408,19 +1758,59 @@ function draw() {
     Math.min(step, Math.abs(dayTarget - dayness)), 0, 1);
 
   drawBackdrop();
+  drawSky(f);      // meteor (noc), obláčky a vzdálené hejno (den)
   drawOutgoing(f); // odcházející starý citát (pod tím novým)
   drawQuote();
+  updatePerchSpring(f);
   drawPerchBar();
 
   for (const b of birds) b.update(f);
   for (const b of birds) b.draw();
 
+  drawFeathers(f);
+  updatePerchSwap();
+  updateAutoNext();
   drawUI();
+}
+
+// Občas si dva sedící ptáčci prohodí místa — oba vzlétnou, křižnou se
+// a dosednou opačně. Plánuje se až po složení citátu, ať to neruší práci.
+function updatePerchSwap() {
+  const now = millis();
+  const perched = birds.filter(b => b.state === S.PERCHED);
+  if (quoteDoneAt === 0 || perched.length < 2) return;
+  if (nextSwapAt === 0) {
+    nextSwapAt = now + random(CONFIG.perch.swapMsMin, CONFIG.perch.swapMsMax);
+    return;
+  }
+  if (now < nextSwapAt) return;
+  nextSwapAt = now + random(CONFIG.perch.swapMsMin, CONFIG.perch.swapMsMax);
+  const a = random(perched);
+  let b;
+  do { b = random(perched); } while (b === a);
+  [a.slot, b.slot] = [b.slot, a.slot];
+  for (const bird of [a, b]) {
+    perchSpringKick(CONFIG.perchSpring.takeoffKick, bird.slot);
+    const t = bird.perchTarget();
+    // vzlet šikmo vzhůru směrem k novému místu — vznikne hezký oblouček
+    bird.vel.set(Math.sign(t.x - bird.pos.x) * 1.4, -2.4);
+    bird.setState(S.FLY_TO_PERCH);
+  }
+}
+
+// Režim spořiče: po složení citátu a době klidu se sám spustí další.
+function updateAutoNext() {
+  const ms = CONFIG.scene.autoNextMs;
+  if (ms <= 0 || quoteDoneAt === 0) return;
+  if (millis() - Math.max(quoteDoneAt, lastInteractionMs) > ms) {
+    startScene(false);
+  }
 }
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
   buildStars();
+  buildClouds();
   computeLayout();
   // sedící ptáčci se přesadí na přepočítané sloty hradu
   for (const b of birds) {

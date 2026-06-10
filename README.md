@@ -46,6 +46,28 @@ Každý ptáček má vlastní povahu (loudal ↔ horlivec — rychlost letu i d�
 pauz), v letu se ptáčci jemně vyhýbají jeden druhému a všechny přechody
 animací (brzdění, otočka, dosednutí) jsou plynulé, bez skoků pózy.
 
+## Drobnosti k objevování
+
+- **Pérující větvička** — při dosednutí se hrad pod ptáčkem prohne a
+  zhoupne, při vzletu odpruží.
+- **Padající hvězda** v noci a **vzdálené hejno ptáků** ve dne — jednou za
+  čas, jako odměna za dlouhé koukání; ve dne navíc pomalu plují obláčky.
+- **Život na hradě** — ptáčci mrkají, přešlapují, protahují se a občas si
+  dva **prohodí místa**.
+- **Peříčka** — při položení písmene se někdy (schválně ne vždy) uvolní
+  peříčko a snese se dolů.
+- **Režim spořiče** — po složení citátu a ~25 s klidu se sám spustí další
+  citát; aplikace tak může běžet donekonečna (laditelné v
+  `CONFIG.scene.autoNextMs`, 0 = vypnout).
+
+## Sdílení a instalace
+
+- **Odkaz na konkrétní citát**: po složení citátu se pod autorem objeví
+  tlačítko „Zkopírovat odkaz". URL má tvar `?lang=cs&q=5` a adresní řádek
+  se průběžně aktualizuje, takže funguje i prosté zkopírování adresy.
+- **PWA**: stránka má web manifest — na mobilu jde přes „Přidat na plochu"
+  nainstalovat jako aplikace a běží přes celý displej bez adresního řádku.
+
 ## Ladění
 
 Všechny laditelné hodnoty jsou v objektu `CONFIG` na začátku `sketch.js`

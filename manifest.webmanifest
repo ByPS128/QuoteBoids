@@ -1,0 +1,13 @@
+{
+  "name": "QuoteBoids — ptáčci nosí citát",
+  "short_name": "QuoteBoids",
+  "description": "Klidná p5.js podívaná: hejno ptáčků po jednom přináší písmena citátu.",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0B1026",
+  "theme_color": "#0B1026",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
