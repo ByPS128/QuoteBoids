@@ -34,7 +34,11 @@ const CONFIG = {
     maxSpeed: 6.0,                 // cestovní rychlost
     acceleration: 0.15,            // limit steeringu při letu (široké oblouky)
     deceleration: 0.22,            // limit steeringu při brzdění/přistávání
-    arriveRadius: 110,             // vzdálenost od cíle, kdy začíná landing
+    arriveRadius: 110,             // minimální vzdálenost, kdy začíná landing
+    // Brzdná dráha se počítá z AKTUÁLNÍ rychlosti (v²/2a) — rychlý ptáček
+    // začne brzdit dřív, pomalý později; žádné „ze 100 na 0 za pikosekundu".
+    brakeSafety: 1.7,              // rezerva nad čistě fyzikální brzdnou dráhu
+    brakeMin: 50,                  // minimální brzdná dráha (px)
     spawnSpeed: 2.0,               // počáteční rychlost po spawnu
     snapDist: 3,                   // jak blízko u cíle se „doklapne" na místo
   },
@@ -93,8 +97,8 @@ const CONFIG = {
 
   // --- Zvuk: procedurální WebAudio, žádné soubory ---
   audio: {
-    defaultOn: true,             // zvuk zapnutý; reálně se rozezní až po prvním
-                                 // gestu uživatele (autoplay policy prohlížečů)
+    defaultOn: false,            // výchozí MUTE — zvuk si zapne uživatel sám
+                                 // (po zapnutí se rozezní hned, klik = gesto)
     masterGain: 0.16,            // celková hlasitost — jemné podbarvení, ne efekty
     pickupGain: 0.45,            // „naložení" písmene za kamerou (ztlumené)
     dropGain: 0.55,              // položení písmene na místo
@@ -439,6 +443,7 @@ class Bird {
     // plynule dojížděné animační parametry (cíle určuje stav, viz update)
     this.tilt = CONFIG.wings.bodyTiltCruise; // aktuální náklon těla
     this.heading = 0;                     // aktuální úhel letu (vyhlazený)
+    this.brakeDist = 0;                   // brzdná dráha zachycená při landing
     this.flapFreqCur = 0;                 // aktuální frekvence mávání
     this.flapAmpCur = 1;                  // aktuální rozsah mávání (0..1)
     this.facingSmooth = 1;                // vyhlazené otočení (squash při obratu)
@@ -476,13 +481,24 @@ class Bird {
   // max rychlost konkrétního ptáčka (horlivec létá rychleji než loudal)
   vMax() { return CONFIG.flight.maxSpeed * this.speedFactor; }
 
+  // brzdná dráha z aktuální rychlosti: v²/2a + rezerva — rychlý ptáček
+  // potřebuje k zabrzdění víc místa, takže landing začíná dřív
+  brakeDistance() {
+    const FL = CONFIG.flight;
+    const v = this.vel.mag();
+    return Math.max(FL.brakeMin, v * v / (2 * FL.deceleration) * FL.brakeSafety);
+  }
+
   // --- steering: plynulé dolétání k cíli (arrive) ---
   steerTo(target, f, maxForce, brake) {
     const toT = p5.Vector.sub(target, this.pos);
     const d = toT.mag();
     let desiredSpeed = this.vMax();
+    // při brzdění klesá žádaná rychlost lineárně s dráhou zbývající
+    // z brzdné dráhy zachycené při vstupu do landing stavu
     if (brake) desiredSpeed = constrain(
-      this.vMax() * d / CONFIG.flight.arriveRadius, 0.4, this.vMax());
+      this.vMax() * d / (this.brakeDist || CONFIG.flight.arriveRadius),
+      0.4, this.vMax());
     const desired = toT.copy().setMag(desiredSpeed);
     const steer = p5.Vector.sub(desired, this.vel).limit(maxForce * f * this.speedFactor);
     this.vel.add(steer);
@@ -558,7 +574,11 @@ class Bird {
         const d = this.steerTo(this.letterTarget(), f, FL.acceleration, false);
         this.avoidOthers(f);
         this.integrate(f);
-        if (d < FL.arriveRadius) this.setState(S.LANDING);
+        // brzdit se začíná podle aktuální rychlosti (rychlý dřív)
+        if (d < Math.max(FL.arriveRadius, this.brakeDistance())) {
+          this.brakeDist = d;
+          this.setState(S.LANDING);
+        }
         break;
       }
 
@@ -622,7 +642,12 @@ class Bird {
         const d = this.steerTo(this.perchTarget(), f, FL.acceleration, false);
         this.avoidOthers(f);
         this.integrate(f);
-        if (d < FL.arriveRadius * 0.7) this.setState(S.LANDING_PERCH);
+        // i dosednutí na hrad brzdí podle rychlosti — let přes celou
+        // obrazovku končí dlouhým plavným dobrzděním, ne zaseknutím
+        if (d < Math.max(FL.arriveRadius * 0.7, this.brakeDistance())) {
+          this.brakeDist = d;
+          this.setState(S.LANDING_PERCH);
+        }
         break;
       }
 
@@ -1178,31 +1203,32 @@ function drawUI() {
   fill(themeLerp("accent"));
   circle(knobX, ty + U.toggleH / 2, U.toggleH - 8);
 
-  // --- přepínač zvuku (kulaté tlačítko s reproduktorem, vlevo od den/noc) ---
-  const ss = U.toggleH; // čtvercová plocha o výšce přepínače
-  const sx0 = tx - ss - U.gap, sy0 = ty;
-  uiRects.sound = { x: sx0, y: sy0, w: ss, h: ss };
+  // --- přepínač zvuku (pilulka s reproduktorem, vlevo od den/noc) ---
+  // širší tvar a kontrastnější ikona, ať je stav čitelný na první pohled
+  const sw = 46, sh = U.toggleH;
+  const sx0 = tx - sw - U.gap, sy0 = ty;
+  uiRects.sound = { x: sx0, y: sy0, w: sw, h: sh };
   noStroke();
   fill(red(tc), green(tc), blue(tc), 50);
-  circle(sx0 + ss / 2, sy0 + ss / 2, ss);
-  // reproduktor: obdélníček + trychtýř
-  const scx = sx0 + ss / 2 - 3, scy = sy0 + ss / 2;
-  fill(red(tc), green(tc), blue(tc), 200);
-  rect(scx - 4, scy - 3, 4, 6);
-  triangle(scx, scy - 6, scx, scy + 6, scx + 5, scy);
+  rect(sx0, sy0, sw, sh, sh / 2);
+  // reproduktor: tělo + trychtýř (větší, plný kontrast)
+  const scx = sx0 + sw / 2 - 5, scy = sy0 + sh / 2;
+  fill(red(tc), green(tc), blue(tc), 235);
+  rect(scx - 7, scy - 3.5, 5, 7, 1);
+  triangle(scx - 2.5, scy - 7.5, scx - 2.5, scy + 7.5, scx + 5, scy);
   if (soundOn) {
-    // zvukové vlnky
+    // dvě zvukové vlnky
     noFill();
-    stroke(red(tc), green(tc), blue(tc), 200);
-    strokeWeight(1.5);
-    arc(scx + 5, scy, 8, 10, -QUARTER_PI, QUARTER_PI);
-    arc(scx + 5, scy, 14, 18, -QUARTER_PI, QUARTER_PI);
+    stroke(red(tc), green(tc), blue(tc), 235);
+    strokeWeight(2);
+    arc(scx + 6, scy, 11, 13, -QUARTER_PI, QUARTER_PI);
+    arc(scx + 6, scy, 19, 22, -QUARTER_PI, QUARTER_PI);
     noStroke();
   } else {
-    // přeškrtnutí
-    stroke(red(tc), green(tc), blue(tc), 200);
-    strokeWeight(2);
-    line(scx + 7, scy - 5, scx + 13, scy + 5);
+    // výrazné přeškrtnutí přes celou ikonu
+    stroke(red(tc), green(tc), blue(tc), 235);
+    strokeWeight(2.5);
+    line(scx - 8, scy + 8, scx + 14, scy - 8);
     noStroke();
   }
 

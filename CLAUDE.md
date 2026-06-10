@@ -50,8 +50,10 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
   → waiting`; když dojdou písmena: `flyingToPerch → landingPerch → perched
   ⇄ stretching`. Ptáčci operují **zleva** (spawn i odlet mimo levou hranu).
   Steering = arrive (desired − vel, limit accel/decel); v landing posledních
-  ~14 px doklouže lerpem, aby nekroužil kolem cíle. `arriveRadius` je záměrně
-  ~110 (brzdná dráha z maxSpeed 6 při decel 0.22 je ~82 px).
+  ~14 px doklouže lerpem, aby nekroužil kolem cíle. Landing začíná podle
+  **brzdné dráhy z aktuální rychlosti** (`brakeDistance()` = v²/2a ×
+  `brakeSafety` + minimum; `arriveRadius` je jen spodní mez) — rychlý ptáček
+  brzdí dřív a déle, žádné zaseknutí na bydýlku (feedback autora).
 - **Kreslení ptáčka** — čistě p5 primitiva, samostatně transformované části
   (tělo, hlava+zobák, 2 křídla s rotací kolem ramene, nohy, ocásek). Barva =
   1 parametr z `CONFIG.palette` (+ odvozeniny `shade`/`belly`). Boční pohled
@@ -78,6 +80,8 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
   ptáček má vlastní `chirpPitch`). Líná inicializace `audioEnsure()` až po
   gestu uživatele (autoplay policy); přepínač v UI + klávesa `Z`;
   hlasitosti v `CONFIG.audio` — záměr: jemné podbarvení, ne efekty.
+  **Výchozí stav je MUTE** (`defaultOn: false`) — zapíná si ho uživatel
+  (vyžádáno autorem).
 - **Tranzice odchodu citátu** — při „Další citát" se položené znaky zachytí
   do `outgoing` (PŘED výběrem nového citátu!) a odejdou náhodnou variantou:
   `fade`/`gravity`/`scatter`/`rise` (`TRANSITIONS`, `CONFIG.transition`),
