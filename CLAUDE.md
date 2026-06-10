@@ -35,8 +35,9 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
 ## Architektura (sketch.js)
 
 - **`CONFIG`** — všechny laditelné hodnoty, strukturované po celcích
-  (scene, birds, flight, wings, birdShape, timing, perch, perchBar, palette,
-  quote, layout, theme, ui). Magická čísla nepatří do kódu.
+  (scene, birds, flight, wings, anim, birdShape, timing, perch, perchBar,
+  audio, personality, avoid, transition, palette, quote, layout, theme, ui).
+  Magická čísla nepatří do kódu.
 - **`QUOTES`** — offline pole `{ text, author }`, vybírá se náhodně; při
   resetu vždy jiný než aktuální.
 - **Layout** (`computeLayout`): zalomení po slovech přes `textWidth()`,
@@ -60,12 +61,37 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
   proti pohybu) + packy jako čárky.
 - **Autor citátu** — zvolená varianta: fade-in až po složení celého citátu
   (během skládání by překážel) — komentováno u `computeLayout`.
+- **Plynulé animační tranzice** — stav určuje jen CÍLE pózy (náklon `tilt`,
+  úhel letu `heading`, frekvence/rozsah mávání, otočení `facingSmooth`);
+  k nim se dojíždí exponenciálním easingem (`CONFIG.anim`, fps-nezávislé
+  přes `ke()`), takže změna stavu neudělá skok pózy. Otočka = squash přes
+  `scale(facingSmooth,1)` s minimem ±0.08. Mimo obraz se parametry srovnají
+  skokem (nikdo to nevidí).
+- **Povahy** — `speedFactor` (loudal 0.8 ↔ horlivec 1.2) škáluje rychlost,
+  steering, frekvenci mávání; `waitFactor` (odvozený inverzně) délku pauz.
+  `CONFIG.personality`.
+- **Vyhýbání v letu** — `avoidOthers()`: malá odpudivá síla (`CONFIG.avoid`),
+  jen v letových stavech (NE při přistávání, aby nerušila dosednutí).
+- **Zvuk** — čistě procedurální WebAudio (žádné soubory): vše složeno z
+  `tone()` (oscilátor + klouzavá frekvence + obálka). `sfxPickup` (naložení
+  za kamerou), `sfxDrop` (položení), `sfxChirp` (cvrlik na hradě; každý
+  ptáček má vlastní `chirpPitch`). Líná inicializace `audioEnsure()` až po
+  gestu uživatele (autoplay policy); přepínač v UI + klávesa `Z`;
+  hlasitosti v `CONFIG.audio` — záměr: jemné podbarvení, ne efekty.
+- **Tranzice odchodu citátu** — při „Další citát" se položené znaky zachytí
+  do `outgoing` (PŘED výběrem nového citátu!) a odejdou náhodnou variantou:
+  `fade`/`gravity`/`scatter`/`rise` (`TRANSITIONS`, `CONFIG.transition`),
+  s náhodným staggerem per písmeno; autor odchází s nimi. Kreslí
+  `drawOutgoing(f)` pod novým citátem.
+- **Po posledním písmenu letí ptáček rovnou na hrad** (z `dropping` přímo
+  `flyingToPerch` když je `taskQueue` prázdná) — odlet ze scény a návrat
+  působil rušivě (feedback autora).
 - **Den/noc** — `dayness` 0..1 plynule dojíždí k `dayTarget` za
   `modeTransitionMs`; všechny barvy přes `themeLerp(key)`. Noc = hvězdy +
   srpek měsíce, den = slunce s paprsky (crossfade). Výchozí je noc.
-- **UI** — kreslené přímo na plátno (žádný DOM): pill přepínač den/noc +
-  tlačítko „Další citát" vpravo nahoře; hitboxy v `uiRects`. Klávesy:
-  `M` den/noc, `N` další citát.
+- **UI** — kreslené přímo na plátno (žádný DOM): přepínač zvuku + pill
+  přepínač den/noc + tlačítko „Další citát" vpravo nahoře; hitboxy
+  v `uiRects`. Klávesy: `M` den/noc, `N` další citát, `Z` zvuk.
 
 ## Konvence / preference autora
 

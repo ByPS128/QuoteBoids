@@ -1,5 +1,8 @@
 # QuoteBoids — ptáčci nosí citát
 
+**▶ Živá ukázka: <https://byps128.github.io/QuoteBoids/>** — běží přímo
+v prohlížeči, nic se neinstaluje.
+
 Klidná p5.js podívaná: hejno barevných, procedurálně kreslených ptáčků po
 jednom přináší písmena náhodně vybraného citátu a pokládá je na jejich místo
 v nápisu. Inspirováno mechanikou ze hry **Bounty Bob (Atari 800 XL)** —
@@ -25,9 +28,19 @@ python -m http.server 8000   # pak http://localhost:8000
 - **Přepínač den/noc** (pill vpravo nahoře) — plynulý přechod mezi nočním
   (výchozí: tmavé nebe, hvězdy, měsíc) a denním režimem (světlé nebe, slunce).
   Klávesa: `M`.
-- **Další citát** (tlačítko vpravo nahoře) — reset: ptáčci odletí a začnou
-  skládat nový náhodný citát. Klávesa: `N`.
+- **Přepínač zvuku** (reproduktor vpravo nahoře) — jemné procedurální zvuky
+  přes WebAudio (žádné soubory): tiché „naložení" písmene za kamerou,
+  měkké ťuknutí při položení a občasné cvrlikání ptáčků na hradě (každý má
+  vlastní výšku hlasu). Kvůli autoplay politice prohlížečů se zvuk rozezní
+  až po první interakci se stránkou. Klávesa: `Z`.
+- **Další citát** (tlačítko vpravo nahoře) — reset: starý citát opustí scénu
+  náhodně vybranou tranzicí (rozplynutí, pád s gravitací, rozlet do stran,
+  vyplutí vzhůru) a ptáčci začnou skládat nový. Klávesa: `N`.
 - Okno jde libovolně měnit — layout citátu i hrad se přepočítají.
+
+Každý ptáček má vlastní povahu (loudal ↔ horlivec — rychlost letu i délka
+pauz), v letu se ptáčci jemně vyhýbají jeden druhému a všechny přechody
+animací (brzdění, otočka, dosednutí) jsou plynulé, bez skoků pózy.
 
 ## Ladění
 

@@ -67,9 +67,12 @@ try {
   await page.waitForTimeout(800);
   await page.screenshot({ path: path.join(__dirname, "resized.png") });
 
-  // reset „Další citát" klávesou
+  // reset „Další citát" klávesou — starý citát musí odejít tranzicí
   await page.keyboard.press("n");
-  await page.waitForTimeout(3000);
+  await page.waitForTimeout(300);
+  const trans = await page.evaluate(() => outgoing ? outgoing.type : null);
+  console.log("tranzice odchodu:", trans);
+  await page.waitForTimeout(2700);
   const state3 = await page.evaluate(() => ({
     quote: quote.text, placed: letters.filter(l => l.placed).length,
     states: birds.map(b => b.state),

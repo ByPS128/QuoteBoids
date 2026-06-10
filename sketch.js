@@ -48,6 +48,13 @@ const CONFIG = {
     bodyTiltLanding: -0.45,        // hlava nahoru / tělo proti směru při brzdění
   },
 
+  // --- Plynulé přechody animace mezi stavy (žádné skoky pózy) ---
+  anim: {
+    tiltEase: 0.10,              // dojíždění náklonu těla a úhlu letu (podíl/frame)
+    flapEase: 0.12,              // dojíždění frekvence a rozsahu mávání
+    turnEase: 0.15,              // rychlost otočky (zrcadlení přes squash v ose X)
+  },
+
   // --- Ptáček: rozměry vektorové grafiky (px) ---
   birdShape: {
     bodyLength: 26,
@@ -82,6 +89,43 @@ const CONFIG = {
     marginRight: 40,               // odsazení zprava
     width: 220,                    // délka větvičky
     sag: 6,                        // prohnutí větvičky uprostřed (px)
+  },
+
+  // --- Zvuk: procedurální WebAudio, žádné soubory ---
+  audio: {
+    defaultOn: true,             // zvuk zapnutý; reálně se rozezní až po prvním
+                                 // gestu uživatele (autoplay policy prohlížečů)
+    masterGain: 0.16,            // celková hlasitost — jemné podbarvení, ne efekty
+    pickupGain: 0.45,            // „naložení" písmene za kamerou (ztlumené)
+    dropGain: 0.55,              // položení písmene na místo
+    chirpGain: 0.7,              // cvrlikání sedících ptáčků
+    perchChirpMsMin: 5000,       // jak často (min) si sedící ptáček zacvrliká
+    perchChirpMsMax: 14000,      // jak často (max)
+    chirpPitchMin: 1700,         // rozsah vlastní výšky hlasu ptáčka (Hz)
+    chirpPitchMax: 3000,
+  },
+
+  // --- Povahy ptáčků (loudal ↔ horlivec) ---
+  personality: {
+    speedFactorMin: 0.8,         // loudal: násobek rychlosti letu
+    speedFactorMax: 1.2,         // horlivec
+    waitFactorMin: 0.65,         // horlivec čeká mezi písmeny kratčeji…
+    waitFactorMax: 1.5,          // …loudal déle (odvozeno z rychlosti)
+  },
+
+  // --- Jemné vyhýbání se v letu ---
+  avoid: {
+    radius: 55,                  // od jaké vzdálenosti se ptáčci odpuzují
+    force: 0.08,                 // max síla úhybu (malá — cíl má vždy přednost)
+  },
+
+  // --- Tranzice odchodu starého citátu (tlačítko „Další citát") ---
+  transition: {
+    durationMs: 1400,            // délka odchodu jednoho písmene (~1–2 s celkem)
+    staggerMs: 350,              // max náhodné zpoždění startu jednotlivých písmen
+    gravity: 0.55,               // zrychlení pádu (varianta „gravity")
+    scatterSpeed: 3.0,           // počáteční rychlost rozletu (varianta „scatter")
+    riseAccel: 0.06,             // zrychlení stoupání (varianta „rise" — balónky)
   },
 
   // --- Paleta barev ptáčků (každý ptáček = 1 barva) ---
@@ -220,6 +264,10 @@ function setup() {
 // Spustí novou scénu s náhodným citátem. firstRun=true znamená čerstvý start
 // (ptáčci se teprve vytvoří), jinak jde o reset tlačítkem „Další citát".
 function startScene(firstRun) {
+  // starý citát neodstraníme skokem — odejde náhodně vybranou tranzicí
+  // (musí se zachytit PŘED výběrem nového citátu a přepočtem layoutu)
+  if (!firstRun) captureOutgoing();
+
   // vyber nový citát (při resetu jiný než aktuální)
   let q;
   do { q = random(QUOTES); } while (QUOTES.length > 1 && quote && q === quote);
@@ -380,6 +428,20 @@ class Bird {
     this.letter = null;                   // přidělený znak (objekt z letters[])
     this.flapPhase = random(TWO_PI);      // fáze mávání (každý ptáček jinak)
     this.exit = null;                     // cíl odletu mimo obrazovku
+    // povaha: loudal (pomalejší let, delší pauzy) ↔ horlivec — z jedné náhody
+    const P = CONFIG.personality;
+    this.speedFactor = random(P.speedFactorMin, P.speedFactorMax);
+    this.waitFactor = map(this.speedFactor,
+      P.speedFactorMin, P.speedFactorMax, P.waitFactorMax, P.waitFactorMin);
+    // vlastní výška hlasu (každý ptáček cvrliká jinak vysoko)
+    this.chirpPitch = random(CONFIG.audio.chirpPitchMin, CONFIG.audio.chirpPitchMax);
+    this.chirpAt = 0;                     // kdy si příště zacvrliká na hradě
+    // plynule dojížděné animační parametry (cíle určuje stav, viz update)
+    this.tilt = CONFIG.wings.bodyTiltCruise; // aktuální náklon těla
+    this.heading = 0;                     // aktuální úhel letu (vyhlazený)
+    this.flapFreqCur = 0;                 // aktuální frekvence mávání
+    this.flapAmpCur = 1;                  // aktuální rozsah mávání (0..1)
+    this.facingSmooth = 1;                // vyhlazené otočení (squash při obratu)
     // idle na hradě
     this.headDir = 1;                     // kam kouká zobáček (1 vpravo, -1 vlevo)
     this.headTurnAt = 0;
@@ -411,18 +473,40 @@ class Bird {
     this.setState(S.TURNING);
   }
 
+  // max rychlost konkrétního ptáčka (horlivec létá rychleji než loudal)
+  vMax() { return CONFIG.flight.maxSpeed * this.speedFactor; }
+
   // --- steering: plynulé dolétání k cíli (arrive) ---
   steerTo(target, f, maxForce, brake) {
     const toT = p5.Vector.sub(target, this.pos);
     const d = toT.mag();
-    let desiredSpeed = CONFIG.flight.maxSpeed;
+    let desiredSpeed = this.vMax();
     if (brake) desiredSpeed = constrain(
-      CONFIG.flight.maxSpeed * d / CONFIG.flight.arriveRadius, 0.4, CONFIG.flight.maxSpeed);
+      this.vMax() * d / CONFIG.flight.arriveRadius, 0.4, this.vMax());
     const desired = toT.copy().setMag(desiredSpeed);
-    const steer = p5.Vector.sub(desired, this.vel).limit(maxForce * f);
+    const steer = p5.Vector.sub(desired, this.vel).limit(maxForce * f * this.speedFactor);
     this.vel.add(steer);
-    this.vel.limit(CONFIG.flight.maxSpeed);
+    this.vel.limit(this.vMax());
     return d;
+  }
+
+  // jemné vyhýbání ostatním ptáčkům — malá odpudivá síla, cíl má vždy přednost
+  // (aplikuje se jen v letových stavech, ne při přistávání, aby nerušila dosednutí)
+  avoidOthers(f) {
+    const A = CONFIG.avoid;
+    const push = createVector(0, 0);
+    for (const o of birds) {
+      if (o === this || o.state === S.WAITING) continue;
+      const d = p5.Vector.dist(this.pos, o.pos);
+      if (d > 0.001 && d < A.radius) {
+        push.add(p5.Vector.sub(this.pos, o.pos).setMag(1 - d / A.radius));
+      }
+    }
+    if (push.magSq() > 0) {
+      push.limit(A.force * f);
+      this.vel.add(push);
+      this.vel.limit(this.vMax());
+    }
   }
 
   integrate(f) {
@@ -447,24 +531,32 @@ class Bird {
             this.letter = letters[taskQueue.pop()];
             this.pos.set(-60, random(height * 0.12, height * 0.88));
             this.vel = p5.Vector.sub(this.letterTarget(), this.pos).setMag(FL.spawnSpeed);
+            sfxPickup(); // „naložení" písmene za kamerou
             this.setState(S.SPAWNING);
           } else {
             this.pos.set(-60, random(height * 0.1, height * 0.4));
             this.vel = p5.Vector.sub(this.perchTarget(), this.pos).setMag(FL.spawnSpeed);
             this.setState(S.FLY_TO_PERCH);
           }
+          // mimo obraz se animační parametry srovnají skokem (nikdo to nevidí)
+          this.facing = 1;
+          this.facingSmooth = 1;
+          this.heading = constrain(Math.atan2(this.vel.y, Math.abs(this.vel.x)), -0.9, 0.9);
+          this.tilt = CONFIG.wings.bodyTiltCruise;
         }
         break;
 
       case S.SPAWNING:
         // krátké nasazení do letu — rozjezd, pak plynule do carrying
         this.steerTo(this.letterTarget(), f, FL.acceleration, false);
+        this.avoidOthers(f);
         this.integrate(f);
         if (now - this.stateSince > 400) this.setState(S.CARRYING);
         break;
 
       case S.CARRYING: {
         const d = this.steerTo(this.letterTarget(), f, FL.acceleration, false);
+        this.avoidOthers(f);
         this.integrate(f);
         if (d < FL.arriveRadius) this.setState(S.LANDING);
         break;
@@ -488,6 +580,7 @@ class Bird {
           this.letter.dropFrom = { x: this.pos.x, y: this.pos.y + this.carryOffset() };
           this.letter.dropStart = now;
           this.letter = null;
+          sfxDrop();
           this.setState(S.DROPPING);
           checkQuoteDone();
         }
@@ -495,8 +588,13 @@ class Bird {
       }
 
       case S.DROPPING:
-        // krátká pauza na místě — ptáček „pustil" a srovnává se
-        if (now - this.stateSince > CONFIG.timing.dropMs) this.beginDeparting();
+        // krátká pauza na místě — ptáček „pustil" a srovnává se;
+        // když už v zásobníku žádné písmeno nezbývá, letí rovnou na hrad
+        // (zbytečný odlet ze scény a návrat působil rušivě)
+        if (now - this.stateSince > CONFIG.timing.dropMs) {
+          if (taskQueue.length === 0) this.setState(S.FLY_TO_PERCH);
+          else this.beginDeparting();
+        }
         break;
 
       case S.TURNING:
@@ -508,11 +606,13 @@ class Bird {
       case S.DEPARTING: {
         // zrychluje pryč; po nabrání rychlosti už jen klidně plachtí
         this.steerTo(this.exit, f, CONFIG.flight.acceleration * 1.4, false);
+        this.avoidOthers(f);
         this.integrate(f);
         if (this.pos.x < -70) {
           this.setState(S.WAITING);
+          // pauza mezi písmeny podle povahy: horlivec krátce, loudal déle
           this.waitUntil = now + (this.extraWait || 0)
-            + random(CONFIG.birds.waitMsMin, CONFIG.birds.waitMsMax);
+            + random(CONFIG.birds.waitMsMin, CONFIG.birds.waitMsMax) * this.waitFactor;
           this.extraWait = 0;
         }
         break;
@@ -520,6 +620,7 @@ class Bird {
 
       case S.FLY_TO_PERCH: {
         const d = this.steerTo(this.perchTarget(), f, FL.acceleration, false);
+        this.avoidOthers(f);
         this.integrate(f);
         if (d < FL.arriveRadius * 0.7) this.setState(S.LANDING_PERCH);
         break;
@@ -539,6 +640,7 @@ class Bird {
           this.setState(S.PERCHED);
           this.headDir = random() < 0.5 ? -1 : 1;
           this.headTurnAt = now + random(CONFIG.perch.headTurnMsMin, CONFIG.perch.headTurnMsMax);
+          this.chirpAt = now + random(CONFIG.audio.perchChirpMsMin, CONFIG.audio.perchChirpMsMax);
           this.shuffleX = 0;
           this.shuffleTarget = 0;
         }
@@ -562,6 +664,11 @@ class Bird {
           }
           this.headTurnAt = now + random(CONFIG.perch.headTurnMsMin, CONFIG.perch.headTurnMsMax);
         }
+        // občasné tiché zacvrlikání (každý ptáček svou výškou hlasu)
+        if (now >= this.chirpAt) {
+          sfxChirp(this.chirpPitch);
+          this.chirpAt = now + random(CONFIG.audio.perchChirpMsMin, CONFIG.audio.perchChirpMsMax);
+        }
         break;
 
       case S.STRETCHING:
@@ -574,11 +681,31 @@ class Bird {
         break;
     }
 
-    // posun fáze mávání podle stavu (na hradě křídla nemávají)
+    // --- plynulé tranzice animačních parametrů mezi stavy ---
+    // Stav určuje jen CÍLE (náklon, frekvence/rozsah mávání, úhel letu,
+    // otočení); k nim se dojíždí exponenciálním easingem, takže změna stavu
+    // nikdy neudělá skok pózy během jednoho frame.
+    const W = CONFIG.wings;
     const flying = [S.SPAWNING, S.CARRYING, S.DEPARTING, S.FLY_TO_PERCH].includes(this.state);
-    const braking = [S.LANDING, S.LANDING_PERCH, S.DROPPING, S.TURNING].includes(this.state);
-    if (flying) this.flapPhase += CONFIG.wings.flapFreqCruise * f * TWO_PI;
-    else if (braking) this.flapPhase += CONFIG.wings.flapFreqLanding * f * TWO_PI;
+    const braking = this.state === S.LANDING || this.state === S.LANDING_PERCH;
+    const pausing = this.state === S.DROPPING || this.state === S.TURNING;
+
+    let freqT = 0, ampT = this.flapAmpCur; // na hradě mávání plynule dozní
+    if (flying) { freqT = W.flapFreqCruise * this.speedFactor; ampT = 1; }
+    else if (braking) { freqT = W.flapFreqLanding; ampT = 1; }
+    else if (pausing) { freqT = W.flapFreqLanding; ampT = 0.55; }
+    const tiltT = (braking || pausing) ? W.bodyTiltLanding : W.bodyTiltCruise;
+    let headT = this.vel.mag() > 0.3
+      ? constrain(Math.atan2(this.vel.y, Math.abs(this.vel.x)), -0.9, 0.9) : 0;
+
+    const ke = e => 1 - Math.pow(1 - e, f); // easing nezávislý na fps
+    const E = CONFIG.anim;
+    this.flapFreqCur = lerp(this.flapFreqCur, freqT, ke(E.flapEase));
+    this.flapAmpCur = lerp(this.flapAmpCur, ampT, ke(E.flapEase));
+    this.tilt = lerp(this.tilt, tiltT, ke(E.tiltEase));
+    this.heading = lerp(this.heading, headT, ke(E.tiltEase));
+    this.facingSmooth = lerp(this.facingSmooth, this.facing, ke(E.turnEase));
+    this.flapPhase += this.flapFreqCur * f * TWO_PI;
   }
 
   // =====================================================
@@ -598,20 +725,20 @@ class Bird {
   drawSide() {
     const sh = CONFIG.birdShape;
     const W = CONFIG.wings;
-    const braking = this.state === S.LANDING || this.state === S.LANDING_PERCH;
-    const pausing = this.state === S.DROPPING || this.state === S.TURNING;
 
-    // úhel letu: tělo sleduje směr rychlosti, při brzdění se zvedá hlava
-    const speed = this.vel.mag();
-    let heading = speed > 0.3 ? Math.atan2(this.vel.y, Math.abs(this.vel.x)) : 0;
-    heading = constrain(heading, -0.9, 0.9);
-    const tilt = braking || pausing ? W.bodyTiltLanding : W.bodyTiltCruise;
-    const flap = Math.sin(this.flapPhase) * W.flapAmplitude * (pausing ? 0.55 : 1);
+    // všechny pózové parametry jsou vyhlazené (viz konec update) — náklon,
+    // úhel letu i rozsah mávání dojíždí ke stavovým cílům bez skoků
+    const flap = Math.sin(this.flapPhase) * W.flapAmplitude * this.flapAmpCur;
+
+    // otočka se kreslí jako plynulý „squash" přes osu X (zrcadlo dojíždí
+    // od 1 k -1); kolem nuly se drží minimální šířka, ať ptáček nezmizí
+    let sx = this.facingSmooth;
+    if (Math.abs(sx) < 0.08) sx = sx < 0 ? -0.08 : 0.08;
 
     push();
     translate(this.pos.x, this.pos.y);
-    scale(this.facing, 1);          // otočení celého ptáčka podle směru letu
-    rotate(heading + tilt);
+    scale(sx, 1);
+    rotate(this.heading + this.tilt);
 
     // vzdálenější křídlo (za tělem, tmavší, v protifázi nevypadá dobře — stejná fáze)
     push();
@@ -795,6 +922,95 @@ function checkQuoteDone() {
 }
 
 // =====================================================================
+// Tranzice odchodu starého citátu (reset „Další citát")
+// =====================================================================
+// Položená písmena opustí scénu náhodně vybraným způsobem:
+//   "fade"    — rozplynou se na místě (s nepatrným stoupáním),
+//   "gravity" — spadnou dolů mimo obraz, zrychlují jako při pádu,
+//   "scatter" — rozletí se od středu citátu do všech stran a zrychlují,
+//   "rise"    — vyplavou nahoru jako balónky, s jemným vlněním.
+// Každé písmeno startuje s malým náhodným zpožděním (stagger) — působí to
+// organicky, ne jako mechanický povel. Autor odchází spolu s písmeny.
+const TRANSITIONS = ["fade", "gravity", "scatter", "rise"];
+
+let outgoing = null; // {type, t0, items: [{ch, x, y, size, vx, vy, delay, sway}]}
+
+function captureOutgoing() {
+  const placed = letters.filter(l => l.placed);
+  if (!placed.length) { outgoing = null; return; }
+  const type = random(TRANSITIONS);
+  const cx = width / 2, cy = height / 2;
+  const items = placed.map(l =>
+    makeOutItem(l.ch, l.x, l.y, letters.quoteFontSize, type, cx, cy));
+  if (quoteDoneAt > 0) {
+    items.push(makeOutItem("— " + quote.author, authorPos.x, authorPos.y,
+      CONFIG.quote.authorFontSize, type, cx, cy));
+  }
+  outgoing = { type, t0: millis(), items };
+}
+
+function makeOutItem(ch, x, y, size, type, cx, cy) {
+  const T = CONFIG.transition;
+  const it = { ch, x, y, size, vx: 0, vy: 0,
+    delay: random(T.staggerMs), sway: random(TWO_PI) };
+  if (type === "scatter") {
+    // směr od středu citátu ven, s náhodným rozptylem úhlu
+    const a = Math.atan2(y - cy, x - cx) + random(-0.6, 0.6);
+    const sp = T.scatterSpeed * random(0.7, 1.5);
+    it.vx = Math.cos(a) * sp;
+    it.vy = Math.sin(a) * sp;
+  }
+  if (type === "gravity") it.vx = random(-0.4, 0.4);
+  return it;
+}
+
+function drawOutgoing(f) {
+  if (!outgoing) return;
+  const T = CONFIG.transition;
+  const now = millis();
+  if (now > outgoing.t0 + T.durationMs + T.staggerMs) { outgoing = null; return; }
+  const col = themeLerp("text");
+  textFont(quoteFont());
+  textAlign(CENTER, CENTER);
+  noStroke();
+  for (const it of outgoing.items) {
+    const t = constrain((now - outgoing.t0 - it.delay) / T.durationMs, 0, 1);
+    if (t > 0) {
+      switch (outgoing.type) {
+        case "fade":
+          it.y -= 0.25 * f;
+          break;
+        case "gravity":
+          it.vy += T.gravity * f;
+          it.x += it.vx * f;
+          it.y += it.vy * f;
+          break;
+        case "scatter": {
+          const grow = Math.pow(1.055, f); // plynulé zrychlování rozletu
+          it.vx *= grow; it.vy *= grow;
+          it.x += it.vx * f;
+          it.y += it.vy * f;
+          break;
+        }
+        case "rise":
+          it.vy -= T.riseAccel * f;
+          it.y += it.vy * f;
+          it.x += Math.sin(now * 0.004 + it.sway) * 0.6 * f;
+          break;
+      }
+    }
+    // pohybové varianty mizí až ke konci (do té doby letí plně viditelné)
+    const alpha = (outgoing.type === "fade" || outgoing.type === "rise")
+      ? 255 * (1 - t)
+      : 255 * (1 - Math.max(0, t - 0.75) * 4);
+    if (alpha <= 0) continue;
+    fill(red(col), green(col), blue(col), alpha);
+    textSize(it.size);
+    text(it.ch, it.x, it.y);
+  }
+}
+
+// =====================================================================
 // Téma den/noc + dekorace pozadí
 // =====================================================================
 
@@ -858,6 +1074,76 @@ function drawBackdrop() {
 }
 
 // =====================================================================
+// Zvuk — procedurální WebAudio (žádné soubory, jen oscilátory + obálky)
+// =====================================================================
+let soundOn = CONFIG.audio.defaultOn;  // přepínač uživatele (UI / klávesa Z)
+let audioCtx = null;                   // líně vytvořený AudioContext
+let audioMaster = null;                // hlavní gain (CONFIG.audio.masterGain)
+
+// Líná inicializace — AudioContext smí vzniknout/odmlčet se až po gestu
+// uživatele (klik, klávesa); do té doby se tóny prostě neplánují.
+function audioEnsure() {
+  if (!soundOn) return false;
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    audioCtx = new AC();
+    audioMaster = audioCtx.createGain();
+    audioMaster.gain.value = CONFIG.audio.masterGain;
+    audioMaster.connect(audioCtx.destination);
+  }
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return true;
+}
+
+// Jeden měkký tón: oscilátor s klouzavou frekvencí a rychlou obálkou.
+// Všechny zvuky aplikace jsou poskládané jen z těchhle tónů.
+function tone(freqFrom, freqTo, durMs, gain, delayMs = 0, type = "sine") {
+  if (!audioEnsure()) return;
+  const t0 = audioCtx.currentTime + delayMs / 1000;
+  const dur = durMs / 1000;
+  const osc = audioCtx.createOscillator();
+  const env = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(Math.max(freqFrom, 1), t0);
+  osc.frequency.exponentialRampToValueAtTime(Math.max(freqTo, 1), t0 + dur);
+  env.gain.setValueAtTime(0, t0);
+  env.gain.linearRampToValueAtTime(gain, t0 + dur * 0.18);
+  env.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(env);
+  env.connect(audioMaster);
+  osc.start(t0);
+  osc.stop(t0 + dur + 0.05);
+}
+
+// „Naložení" písmene za kamerou — tlumený stoupavý dvojtón (à la Bounty Bob,
+// ale měkce: děje se mimo obraz, tak je i zvuk decentní).
+function sfxPickup() {
+  const g = CONFIG.audio.pickupGain;
+  tone(520, 780, 70, g * 0.6);
+  tone(780, 1060, 90, g, 75);
+}
+
+// Položení písmene — krátké měkké „ťuk" směrem dolů + tichý spodní doťuk.
+function sfxDrop() {
+  const g = CONFIG.audio.dropGain;
+  tone(980, 620, 110, g);
+  tone(320, 290, 60, g * 0.35, 10, "triangle");
+}
+
+// Cvrlik sedícího ptáčka — 2–4 rychlé tóny kolem jeho vlastní výšky hlasu.
+function sfxChirp(basePitch) {
+  const g = CONFIG.audio.chirpGain;
+  const n = Math.floor(random(2, 5));
+  let t = 0;
+  for (let i = 0; i < n; i++) {
+    const f = basePitch * random(0.85, 1.25);
+    tone(f, f * random(0.8, 1.3), random(45, 90), g * random(0.5, 1), t);
+    t += random(70, 140);
+  }
+}
+
+// =====================================================================
 // Ovládací prvky (kreslené přímo na plátno, vpravo nahoře)
 // =====================================================================
 
@@ -892,6 +1178,34 @@ function drawUI() {
   fill(themeLerp("accent"));
   circle(knobX, ty + U.toggleH / 2, U.toggleH - 8);
 
+  // --- přepínač zvuku (kulaté tlačítko s reproduktorem, vlevo od den/noc) ---
+  const ss = U.toggleH; // čtvercová plocha o výšce přepínače
+  const sx0 = tx - ss - U.gap, sy0 = ty;
+  uiRects.sound = { x: sx0, y: sy0, w: ss, h: ss };
+  noStroke();
+  fill(red(tc), green(tc), blue(tc), 50);
+  circle(sx0 + ss / 2, sy0 + ss / 2, ss);
+  // reproduktor: obdélníček + trychtýř
+  const scx = sx0 + ss / 2 - 3, scy = sy0 + ss / 2;
+  fill(red(tc), green(tc), blue(tc), 200);
+  rect(scx - 4, scy - 3, 4, 6);
+  triangle(scx, scy - 6, scx, scy + 6, scx + 5, scy);
+  if (soundOn) {
+    // zvukové vlnky
+    noFill();
+    stroke(red(tc), green(tc), blue(tc), 200);
+    strokeWeight(1.5);
+    arc(scx + 5, scy, 8, 10, -QUARTER_PI, QUARTER_PI);
+    arc(scx + 5, scy, 14, 18, -QUARTER_PI, QUARTER_PI);
+    noStroke();
+  } else {
+    // přeškrtnutí
+    stroke(red(tc), green(tc), blue(tc), 200);
+    strokeWeight(2);
+    line(scx + 7, scy - 5, scx + 13, scy + 5);
+    noStroke();
+  }
+
   // --- tlačítko „Další citát" ---
   // Záměrně viditelné pořád (ne jen po složení): slouží i k přeskočení
   // citátu; zadání ho vyžaduje jako reset po dokončení.
@@ -908,7 +1222,7 @@ function drawUI() {
   text(label, bx + bw / 2, by + U.buttonH / 2 - 1);
 
   // kurzor ruky nad klikacími prvky
-  const over = ["toggle", "next"].some(k => {
+  const over = ["toggle", "next", "sound"].some(k => {
     const r = uiRects[k];
     return mouseX >= r.x && mouseX <= r.x + r.w && mouseY >= r.y && mouseY <= r.y + r.h;
   });
@@ -916,18 +1230,23 @@ function drawUI() {
 }
 
 function mousePressed() {
+  // jakékoli gesto smí rozjet audio (autoplay policy) — když je zvuk zapnutý
+  audioEnsure();
   for (const [k, r] of Object.entries(uiRects)) {
     if (mouseX >= r.x && mouseX <= r.x + r.w && mouseY >= r.y && mouseY <= r.y + r.h) {
       if (k === "toggle") dayTarget = 1 - dayTarget;
       if (k === "next") startScene(false);
+      if (k === "sound") { soundOn = !soundOn; audioEnsure(); }
       return;
     }
   }
 }
 
 function keyPressed() {
-  if (key === "m" || key === "M") dayTarget = 1 - dayTarget;   // den/noc
-  if (key === "n" || key === "N") startScene(false);           // další citát
+  audioEnsure(); // gesto uživatele — případné rozjetí audia
+  if (key === "m" || key === "M") dayTarget = 1 - dayTarget;          // den/noc
+  if (key === "n" || key === "N") startScene(false);                  // další citát
+  if (key === "z" || key === "Z") { soundOn = !soundOn; audioEnsure(); } // zvuk
 }
 
 // =====================================================================
@@ -944,6 +1263,7 @@ function draw() {
     Math.min(step, Math.abs(dayTarget - dayness)), 0, 1);
 
   drawBackdrop();
+  drawOutgoing(f); // odcházející starý citát (pod tím novým)
   drawQuote();
   drawPerchBar();
 
