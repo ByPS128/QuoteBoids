@@ -58,6 +58,11 @@ animací (brzdění, otočka, dosednutí) jsou plynulé, bez skoků pózy.
   dva **prohodí místa**.
 - **Peříčka** — při položení písmene se někdy (schválně ne vždy) uvolní
   peříčko a snese se dolů.
+- **Prásk!** — když písmena odlétají na balóncích, jeden ptáček se
+  zvedne z bidýlka, propíchne zobáčkem jeden balónek (prásk + cáry),
+  písmeno spadne gravitací a ostatní ptáčci se leknou a splašeně se
+  rozprchnou. Žádný další balónek už nepraskne; práce na novém citátu
+  pak pokračuje, jako by se nechumelilo.
 - **Režim spořiče** — po složení citátu a ~25 s klidu se sám spustí další
   citát; aplikace tak může běžet donekonečna (laditelné v
   `CONFIG.scene.autoNextMs`, 0 = vypnout).

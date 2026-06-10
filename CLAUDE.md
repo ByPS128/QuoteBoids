@@ -110,8 +110,22 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
   per balónek (`windF`, `seed`) — hýbou se podobně, ne stejně. Balónek
   kreslí `drawBalloon`: stínovaná koule s odleskem, uzlík, prohnutý
   provázek (bezier), náklon po větru; barvy = paleta ptáčků zesvětlená
-  o `lighten`. POZOR: nepojmenovávat lokální proměnnou `pop` — zastíní
-  p5 funkci `pop()` (stalo se, padalo to).
+  o `lighten`. V losování tranzic mají balónky 2× váhu. POZOR:
+  nepojmenovávat lokální proměnnou `pop` — zastíní p5 funkci `pop()`
+  (stalo se, padalo to).
+- **Prásk balónku (gag, `transition.balloons.pop.enabled`)** — když běží
+  balónková tranzice a na hradě sedí ptáčci, jeden (lovec) dostane
+  `huntPlan` (v `startScene` se vynechá z odletové smyčky), v náhodný čas
+  `atMs*` vzlétne (stav `S.HUNTING`), letí na střed balónku (cíl se hýbe;
+  `pickPopTarget` preferuje nejpozději startující řádky, autora nikdy)
+  a v `radius` px ho prásknutím propíchne: `popBalloon` → `sfxPop`
+  (šumový buffer + spodní tón, `audio.popGain`), cáry přes
+  `spawnFeathers` v barvě balónku, písmeno padá gravitací (`it.popped`).
+  Ostatní ptáčci na scéně dostanou `panicUntil` (vMax × `panicBoost`),
+  nosiči vrátí písmeno do `taskQueue` (scéna se vždy dokončí!) a
+  rozprchnou se doleva i NAHORU (`DEPARTING` končí i při y < −70).
+  Žádný další balónek už nepraskne. Lovcův abort: balónek pryč/praskl →
+  `beginDeparting`.
 - **Po posledním písmenu letí ptáček rovnou na hrad** (z `dropping` přímo
   `flyingToPerch` když je `taskQueue` prázdná) — odlet ze scény a návrat
   působil rušivě (feedback autora). Stejně tak: ptáček v `departing` se při
