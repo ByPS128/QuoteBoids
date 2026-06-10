@@ -61,10 +61,12 @@ animací (brzdění, otočka, dosednutí) jsou plynulé, bez skoků pózy.
 - **Režim spořiče** — po složení citátu a ~25 s klidu se sám spustí další
   citát; aplikace tak může běžet donekonečna (laditelné v
   `CONFIG.scene.autoNextMs`, 0 = vypnout).
-- **Břečťan** — po složení citátu vyrostou kolem textu 1–2 úponky
-  s lístky (pod citátem, na širokém okně i po stranách — nikdy přes
-  text); pár lístků zdobí i bydýlko. Při odchodu scény se rozplyne.
-  Feature flag: `CONFIG.ivy.enabled` (a `CONFIG.ivy.perchDecor`).
+- **Břečťan** — po složení citátu se kolem textu namaluje (za ~1 s)
+  břečťanová větvička s 5-laločnými variegovanými listy. Layout se
+  vybírá náhodně a neopakuje se: jedna větvička / víc větviček / věnec
+  kolem dokola / elipsa za písmeny (písmena pak dostanou obrys, aby
+  zůstala ostrá). Pár lístků zdobí i bydýlko. Při odchodu scény se
+  rozplyne. Feature flag: `CONFIG.ivy.enabled` (+ `perchDecor`).
 
 ## Sdílení a instalace
 

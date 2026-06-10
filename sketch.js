@@ -51,15 +51,24 @@ const CONFIG = {
     perchDecor: true,            // pár lístků i na koncích bydýlka
     growDelayMs: 2600,           // start růstu po složení citátu (po autorovi)
     fadeMs: 800,                 // rozplynutí při odchodu scény
-    vinesMin: 1,                 // počet úponků (min)
-    vinesMax: 2,                 // počet úponků (max)
     margin: 26,                  // bezpečný odstup od citátu i autora
-    sideMinSpace: 130,           // kolik místa musí být vedle citátu pro boční
-                                 // úponek (jinak — typicky mobil — roste dole)
     seed: null,                  // pevný seed pro reprodukovatelnost (null = náhodně)
+    // layout se vybírá náhodně (nikdy stejný dvakrát po sobě):
+    //   "single" — jedna větvička (pod citátem / po straně)
+    //   "multi"  — víc větviček kolem
+    //   "wreath" — klikatý věnec kolem dokola (A a B kousek od sebe)
+    //   "behind" — elipsa ZA písmeny; písmena dostanou obrys, aby kontury
+    //              zůstaly ostré a čitelné
+    sideMinSpace: 130,           // místo vedle citátu nutné pro boční větvičku
+    wreathPoints: 12,            // počet kontrolních bodů věnce/elipsy
+    padMin: 8,                   // odsazení věnce od obdélníku textu (min)
+    padMax: 16,                  // (max)
+    gapRadMin: 0.3,              // mezera mezi A a B (radiány obvodu, min)
+    gapRadMax: 0.6,              // (max)
+    jitterOut: 14,               // klikatost — náhodné vyhnutí bodů SMĚREM VEN
     // růst
-    growthSpeed: 0.14,           // podíl délky vodící linky za sekundu (growT/s)
-    leafGrowMs: 650,             // klíčení listu: scale 0 → 1 (s overshootem)
+    growMs: 1000,                // za jak dlouho se namaluje CELÁ větvička
+    leafGrowMs: 450,             // klíčení listu: scale 0 → 1 (s overshootem)
     // stonek
     stemThickness: 4,            // tloušťka stonku u báze (ke špičce se zužuje)
     waveAmplitude: 7,            // oscilace stonku kolem vodící linky (px)
@@ -1188,6 +1197,16 @@ function drawQuote() {
   noStroke();
   const col = themeLerp("text");
 
+  // když břečťan roste ZA písmeny, dostanou písmena obrys v barvě pozadí
+  // — kontury zůstanou ostré a dobře čitelné i přes listy pod nimi
+  const halo = ivy && ivy.layout === "behind";
+  if (halo) {
+    const bg = themeLerp("bg");
+    stroke(red(bg), green(bg), blue(bg), 230);
+    strokeWeight(4);
+    strokeJoin(ROUND);
+  }
+
   for (const l of letters) {
     if (!l.placed) continue;
     let x = l.x, y = l.y, a = 255;
@@ -1285,27 +1304,56 @@ function updateIvy() {
   }
 }
 
+const IVY_LAYOUTS = ["single", "multi", "wreath", "behind"];
+let lastIvyLayout = null; // nikdy stejný layout dvakrát po sobě
+
 function buildIvy() {
   const I = CONFIG.ivy;
   // pevný seed = reprodukovatelná větvička (ladění); null = pokaždé jiná
   if (I.seed !== null) { randomSeed(I.seed); noiseSeed(I.seed); }
   const b = quoteBounds();
-  // pod citátem roste vždy; boky jen když je tam dost místa
+  const center = { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 };
+  // na úzkém displeji (mobil) je vedle citátu málo místa — listy věnce
+  // se globálně zmenší, ať nelezou do textu ani mimo obraz
+  const sideSpace = Math.min(b.x0, width - b.x1);
+  const leafScale = constrain((sideSpace - 14) / 40, 0.55, 1);
+
+  // boční větvičky jen tam, kde je vedle citátu místo
   const spots = ["below"];
   if (b.x0 > I.sideMinSpace) spots.push("left");
   if (width - b.x1 > I.sideMinSpace) spots.push("right");
-  const n = Math.min(spots.length,
-    Math.floor(random(I.vinesMin, I.vinesMax + 1)));
-  const vines = shuffle(spots).slice(0, n)
-    .map(side => makeVine(controlPointsFor(side, b)));
-  ivy = { vines, t0: millis(), dying: 0 };
+
+  const layout = random(IVY_LAYOUTS.filter(l => l !== lastIvyLayout));
+  lastIvyLayout = layout;
+
+  let vines;
+  switch (layout) {
+    case "single":
+      vines = [makeVine(lineControlPoints(random(spots), b), null, 1)];
+      break;
+    case "multi": {
+      const n = Math.min(spots.length, Math.floor(random(2, 4)));
+      vines = shuffle(spots).slice(0, n)
+        .map(side => makeVine(lineControlPoints(side, b), null, 1));
+      break;
+    }
+    case "behind":
+      // elipsa ZA písmeny — listy plné velikosti, text dostane obrys
+      vines = [makeVine(behindControlPoints(b), null, 1)];
+      break;
+    case "wreath":
+    default:
+      vines = [makeVine(wreathControlPoints(b), center, leafScale)];
+      break;
+  }
+  ivy = { layout, vines, t0: millis(), dying: 0 };
   // po deterministickém buildu vrať náhodě volnost (kvůli zbytku scény)
   if (I.seed !== null) randomSeed(Math.floor(millis()) % 1e9);
 }
 
-// Kontrolní body vodící linky pro dané umístění — volně zakroucená křivka
-// (jitter v obou osách), boční úponky se cestou dolů mírně rozestupují ven.
-function controlPointsFor(side, b) {
+// Kontrolní body jedné volně zakroucené větvičky pod/vedle citátu
+// (layouty "single" a "multi").
+function lineControlPoints(side, b) {
   const pts = [];
   if (side === "below") {
     const dir = random() < 0.5 ? 1 : -1; // zleva doprava, nebo naopak
@@ -1329,6 +1377,56 @@ function controlPointsFor(side, b) {
         y: lerp(yA, yB, i / 3),
       });
     }
+  }
+  return pts;
+}
+
+// Elipsa procházející ZA písmeny (layout "behind") — užší než citát,
+// na výšku přesahuje; s jitterem a mezerou mezi A a B.
+function behindControlPoints(b) {
+  const I = CONFIG.ivy;
+  const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+  const rx = (b.x1 - b.x0) / 2 * random(0.55, 0.8);
+  const ry = Math.max(40, (b.y1 - b.y0) / 2 * random(1.0, 1.5));
+  const start = random(TWO_PI);
+  const dir = random() < 0.5 ? 1 : -1;
+  const sweep = TWO_PI - random(I.gapRadMin, I.gapRadMax);
+  const j = I.jitterOut * 0.6;
+  const pts = [];
+  for (let i = 0; i < I.wreathPoints; i++) {
+    const th = start + dir * sweep * (i / (I.wreathPoints - 1));
+    pts.push({
+      x: constrain(cx + Math.cos(th) * rx + random(-j, j), 18, width - 18),
+      y: constrain(cy + Math.sin(th) * ry + random(-j, j), 18, height - 18),
+    });
+  }
+  return pts;
+}
+
+// Vodící linka „kolem dokola": klikatý věnec po obvodu obdélníku citátu.
+// Body se počítají paprskem ze středu na obvod obdélníku (+ odsazení pad)
+// a klikatí se náhodným vyhnutím SMĚREM VEN (dovnitř by lezly do textu).
+// A a B nejsou na stejné souřadnici — výsek obvodu končí o gapRad dřív.
+function wreathControlPoints(b) {
+  const I = CONFIG.ivy;
+  const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+  const hw = (b.x1 - b.x0) / 2 + random(I.padMin, I.padMax);
+  const hh = (b.y1 - b.y0) / 2 + random(I.padMin, I.padMax);
+  const start = random(TWO_PI);                 // odkud věnec vyrůstá
+  const dir = random() < 0.5 ? 1 : -1;          // po/proti směru hodin
+  const sweep = TWO_PI - random(I.gapRadMin, I.gapRadMax);
+  const pts = [];
+  for (let i = 0; i < I.wreathPoints; i++) {
+    const th = start + dir * sweep * (i / (I.wreathPoints - 1));
+    const c = Math.cos(th), s = Math.sin(th);
+    // průsečík paprsku se zvětšeným obdélníkem citátu
+    const t = 1 / Math.max(Math.abs(c) / hw, Math.abs(s) / hh);
+    const m = Math.hypot(c * t, s * t) || 1;
+    const out = random(0, I.jitterOut);
+    pts.push({
+      x: constrain(cx + c * t + (c * t / m) * out, 18, width - 18),
+      y: constrain(cy + s * t + (s * t / m) * out, 18, height - 18),
+    });
   }
   return pts;
 }
@@ -1388,7 +1486,9 @@ function idxAtLen(cum, s) {
 }
 
 // Z vodící linky postaví stonek (oscilace po normále) a rozmístí listy.
-function makeVine(cps) {
+// center = střed citátu (listy mířící dovnitř se zmenšují, ať nelezou do
+// textu), leafScale = globální zmenšení listů na úzkém displeji.
+function makeVine(cps, center, leafScale = 1) {
   const I = CONFIG.ivy;
   const guide = buildIvyPath(cps);
   const phase = random(TWO_PI);
@@ -1433,9 +1533,16 @@ function makeVine(cps) {
     const i = idxAtLen(cum, s);
     const tg = pathTangent(stemPts, i);
     const t = s / total;
-    const size = I.leafSize * random(1 - I.leafSizeVar, 1 + I.leafSizeVar)
+    let size = I.leafSize * leafScale
+      * random(1 - I.leafSizeVar, 1 + I.leafSizeVar)
       * lerp(1, I.leafTipShrink, t);
     const nx = -tg.y * side, ny = tg.x * side; // normála na stranu listu
+    // list mířící DOVNITŘ věnce (k textu) je menší, ať se citátu nedotkne
+    if (center) {
+      const tcx = center.x - stemPts[i].x, tcy = center.y - stemPts[i].y;
+      const tm = Math.hypot(tcx, tcy) || 1;
+      if ((nx * tcx + ny * tcy) / tm > 0.3) size *= 0.75;
+    }
     const pet = size * random(0.35, 0.55);     // délka řapíku
     leaves.push({
       at: s, t,
@@ -1609,8 +1716,8 @@ function drawIvy() {
     if (alpha <= 0) { ivy = null; return; }
   }
 
-  // růst: podíl délky vodící linky za sekundu (nezávisle na její délce)
-  const growT = (now - ivy.t0) / 1000 * I.growthSpeed;
+  // růst: celá větvička se namaluje za growMs (bez ohledu na délku linky)
+  const growT = (now - ivy.t0) / I.growMs;
 
   for (const v of ivy.vines) {
     const drawnLen = Math.min(1, growT) * v.total;

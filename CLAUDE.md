@@ -142,10 +142,17 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
   sám spustí další citát. 0 = vypnuto.
 - **Břečťan (FEATURE FLAG `CONFIG.ivy.enabled`)** — procedurální větvička
   podle (neviditelné) vodící linky, předloha `brectan.png` (v repu není,
-  jen lokálně). Pipeline: `quoteBounds()` (zakázaný obdélník: citát +
-  autor + tlačítko odkazu) → `controlPointsFor(side)` (kontrolní body;
-  „below" vždy, „left/right" jen při `sideMinSpace` místa — mobil na
-  výšku ⇒ dole) → `buildIvyPath` (Catmull-Rom přes `curvePoint`,
+  jen lokálně). **Layout náhodně, nikdy stejný dvakrát po sobě**
+  (`IVY_LAYOUTS`/`lastIvyLayout`): `single` (jedna větvička pod/vedle),
+  `multi` (2–3 větvičky), `wreath` (klikatý věnec kolem dokola — body
+  paprskem na obvod obdélníku, jitter jen VEN, A↔B mezera `gapRad*`,
+  listy dovnitř menší ×0.75, na úzkém displeji globální `leafScale`),
+  `behind` (elipsa ZA písmeny — text dostane v `drawQuote` obrys v barvě
+  pozadí ~4px, kontury zůstanou ostré). Celá větvička se namaluje za
+  `growMs` (default 1 s). Pipeline: `quoteBounds()` (zakázaný obdélník:
+  citát + autor + tlačítko odkazu) → kontrolní body dle layoutu
+  (`lineControlPoints`/`wreathControlPoints`/`behindControlPoints`)
+  → `buildIvyPath` (Catmull-Rom přes `curvePoint`,
   resampling na 4px krok délky) → `makeVine`: stonek = linka + oscilace
   po normále (sin+noise, `waveAmplitude/Frequency`, báze drží na lince),
   zužuje se (`stemThickness`→0.9), zrnité tečkování (`speckleEvery`),
