@@ -230,9 +230,10 @@ const CONFIG = {
       // (balónky samy jsou vzácné, další náhoda by gag pohřbila).
       pop: {
         enabled: true,           // feature flag celého gagu
-        atMsMin: 600,            // kdy nejdřív lovec vyrazí (po startu tranzice)
-        atMsMax: 1500,           // kdy nejpozději
-        radius: 16,              // jak blízko zobáček musí být, aby prásklo
+        atMsMin: 300,            // kdy nejdřív lovec vyrazí (po startu tranzice)
+        atMsMax: 800,            // kdy nejpozději (balónky rychle stoupají!)
+        speedBoost: 1.6,         // lovec letí rychleji než v běžném provozu
+        radius: 18,              // jak blízko zobáček musí být, aby prásklo
         panicMs: 1500,           // jak dlouho jsou ostatní splašení (rychlejší let)
         panicBoost: 1.5,         // násobek rychlosti splašených ptáčků
       },
@@ -516,13 +517,17 @@ function startScene(firstRun) {
     const P = CONFIG.transition.balloons.pop;
     if (P.enabled && outgoing && outgoing.type === "balloons") {
       const seated = birds.filter(b => b.state === S.PERCHED);
-      const target = pickPopTarget();
-      if (seated.length && target) {
+      if (seated.length) {
         hunter = random(seated);
-        hunter.huntPlan = {
-          at: millis() + random(P.atMsMin, P.atMsMax),
-          item: target,
-        };
+        const target = pickPopTarget(hunter);
+        if (target) {
+          hunter.huntPlan = {
+            at: millis() + random(P.atMsMin, P.atMsMax),
+            item: target,
+          };
+        } else {
+          hunter = null;
+        }
       }
     }
 
@@ -756,11 +761,13 @@ class Bird {
   }
 
   // max rychlost konkrétního ptáčka (horlivec létá rychleji než loudal);
-  // splašený ptáček (po prásknutí balónku) letí výrazně rychleji
+  // splašený ptáček letí výrazně rychleji, lovec balónku taky (musí ho
+  // stihnout dřív, než uletí nahoru)
   vMax() {
-    const panic = millis() < this.panicUntil
-      ? CONFIG.transition.balloons.pop.panicBoost : 1;
-    return CONFIG.flight.maxSpeed * this.speedFactor * panic;
+    const P = CONFIG.transition.balloons.pop;
+    const boost = millis() < this.panicUntil ? P.panicBoost
+      : (this.state === S.HUNTING ? P.speedBoost : 1);
+    return CONFIG.flight.maxSpeed * this.speedFactor * boost;
   }
 
   // brzdná dráha z aktuální rychlosti: v²/2a + rezerva — rychlý ptáček
@@ -2007,15 +2014,18 @@ function drawBalloon(it, now) {
 }
 
 // Vybere balónek vhodný k prásknutí: ne autora, ne u kraje; přednost mají
-// nejpozději startující řádky (zůstávají na scéně nejdéle — snazší kořist).
-function pickPopTarget() {
+// nejpozději startující řádky (zůstávají na scéně nejdéle) a z nich ty
+// blízko lovcova hradu — ať souboj s rychle stoupajícím balónkem vyhraje.
+function pickPopTarget(hunter) {
   if (!outgoing || outgoing.type !== "balloons") return null;
   const cand = outgoing.items.filter(it => !it.isAuthor
     && it.x > width * 0.12 && it.x < width * 0.88);
   if (!cand.length) return null;
   const maxDelay = Math.max(...cand.map(it => it.delay));
   const late = cand.filter(it => it.delay > maxDelay - 900);
-  return random(late.length ? late : cand);
+  const pool = (late.length ? late : cand)
+    .sort((a, b) => Math.abs(a.x - hunter.pos.x) - Math.abs(b.x - hunter.pos.x));
+  return random(pool.slice(0, Math.min(4, pool.length)));
 }
 
 // PRÁSK! Balónek praskne (cáry letí), písmeno začne padat gravitací
