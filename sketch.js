@@ -190,9 +190,11 @@ const CONFIG = {
 };
 
 // =====================================================================
-// QUOTES — offline zásoba citátů (snadno ručně doplnitelná)
+// QUOTES — offline zásoba citátů po jazycích (snadno ručně doplnitelná)
 // =====================================================================
-const QUOTES = [
+const QUOTES = {};
+
+QUOTES.cs = [
   { text: "Buď změnou, kterou chceš vidět ve světě.", author: "Mahátma Gándhí" },
   { text: "Cesta dlouhá tisíc mil začíná jediným krokem.", author: "Lao-c'" },
   { text: "Vím, že nic nevím.", author: "Sókratés" },
@@ -215,6 +217,57 @@ const QUOTES = [
   { text: "Naděje umírá poslední.", author: "české přísloví" },
   { text: "Kdo se bojí, nesmí do lesa.", author: "české přísloví" },
 ];
+
+QUOTES.en = [
+  { text: "Be the change you wish to see in the world.", author: "Mahatma Gandhi" },
+  { text: "A journey of a thousand miles begins with a single step.", author: "Lao Tzu" },
+  { text: "I know that I know nothing.", author: "Socrates" },
+  { text: "I think, therefore I am.", author: "René Descartes" },
+  { text: "Truth and love must prevail over lies and hatred.", author: "Václav Havel" },
+  { text: "Live as if you were to die tomorrow. Learn as if you were to live forever.", author: "Mahatma Gandhi" },
+  { text: "Fortune favors the prepared mind.", author: "Louis Pasteur" },
+  { text: "Imagination is more important than knowledge.", author: "Albert Einstein" },
+  { text: "To be, or not to be, that is the question.", author: "William Shakespeare" },
+  { text: "What does not kill me makes me stronger.", author: "Friedrich Nietzsche" },
+  { text: "Success is going from failure to failure without losing enthusiasm.", author: "Winston Churchill" },
+  { text: "Let him who would move the world first move himself.", author: "Socrates" },
+  { text: "The only way to do great work is to love what you do.", author: "Steve Jobs" },
+  { text: "Never, never, never give up.", author: "Winston Churchill" },
+  { text: "Life is what happens while you are busy making other plans.", author: "John Lennon" },
+  { text: "Less is more.", author: "Ludwig Mies van der Rohe" },
+  { text: "The most important thing is not winning but taking part.", author: "Pierre de Coubertin" },
+  { text: "To err is human, to forgive divine.", author: "Alexander Pope" },
+  { text: "Anyone who has never made a mistake has never tried anything new.", author: "Albert Einstein" },
+  { text: "Hope dies last.", author: "proverb" },
+  { text: "Time is money.", author: "Benjamin Franklin" },
+];
+
+// =====================================================================
+// Jazyk (čeština / angličtina) — citáty i texty UI
+// =====================================================================
+const STRINGS = {
+  cs: { next: "Další citát", langName: "Čeština" },
+  en: { next: "Next quote", langName: "English" },
+};
+
+// Detekce: uložená volba má přednost, jinak jazyk prohlížeče
+// (navigator.language je nejspolehlivější webový zdroj; slovenštině
+// nabídneme češtinu, ta je bližší než angličtina).
+function detectLang() {
+  try {
+    const saved = localStorage.getItem("quoteboids-lang");
+    if (saved === "cs" || saved === "en") return saved;
+  } catch (e) { /* localStorage může být zakázané — nevadí */ }
+  const nav = (navigator.language || "en").toLowerCase();
+  return (nav.startsWith("cs") || nav.startsWith("sk")) ? "cs" : "en";
+}
+
+let lang = detectLang();
+
+function setLang(l) {
+  lang = l;
+  try { localStorage.setItem("quoteboids-lang", l); } catch (e) { /* viz výše */ }
+}
 
 // =====================================================================
 // Stavy ptáčka (stavový automat)
@@ -272,9 +325,10 @@ function startScene(firstRun) {
   // (musí se zachytit PŘED výběrem nového citátu a přepočtem layoutu)
   if (!firstRun) captureOutgoing();
 
-  // vyber nový citát (při resetu jiný než aktuální)
+  // vyber nový citát z aktuálního jazyka (při resetu jiný než aktuální)
+  const pool = QUOTES[lang];
   let q;
-  do { q = random(QUOTES); } while (QUOTES.length > 1 && quote && q === quote);
+  do { q = random(pool); } while (pool.length > 1 && quote && q === quote);
   quote = q;
   quoteDoneAt = 0;
 
@@ -972,11 +1026,14 @@ function checkQuoteDone() {
 const TRANSITIONS = ["fade", "gravity", "scatter", "rise"];
 
 let outgoing = null; // {type, t0, items: [{ch, x, y, size, vx, vy, delay, sway}]}
+let lastTransitionType = null; // ochrana proti stejné tranzici dvakrát po sobě
 
 function captureOutgoing() {
   const placed = letters.filter(l => l.placed);
   if (!placed.length) { outgoing = null; return; }
-  const type = random(TRANSITIONS);
+  // náhodný výběr, ale nikdy stejný typ jako při minulém odchodu
+  const type = random(TRANSITIONS.filter(t => t !== lastTransitionType));
+  lastTransitionType = type;
   const cx = width / 2, cy = height / 2;
   const items = placed.map(l =>
     makeOutItem(l.ch, l.x, l.y, letters.quoteFontSize, type, cx, cy));
@@ -1224,11 +1281,13 @@ function drawUI() {
   noStroke();
   fill(red(tc), green(tc), blue(tc), 50);
   rect(sx0, sy0, sw, sh, sh / 2);
-  // reproduktor: tělo + trychtýř (větší, plný kontrast)
+  // reproduktor: tělo (obdélníček) + membrána, která se rozšiřuje DOPRAVA —
+  // špička doprava vypadala jako šipka/play, tohle je klasický repráček
   const scx = sx0 + sw / 2 - 5, scy = sy0 + sh / 2;
   fill(red(tc), green(tc), blue(tc), 235);
-  rect(scx - 7, scy - 3.5, 5, 7, 1);
-  triangle(scx - 2.5, scy - 7.5, scx - 2.5, scy + 7.5, scx + 5, scy);
+  rect(scx - 8, scy - 3.5, 5, 7, 1);
+  quad(scx - 3, scy - 3.5, scx + 3, scy - 8.5,
+       scx + 3, scy + 8.5, scx - 3, scy + 3.5);
   if (soundOn) {
     // dvě zvukové vlnky
     noFill();
@@ -1245,12 +1304,12 @@ function drawUI() {
     noStroke();
   }
 
-  // --- tlačítko „Další citát" ---
+  // --- tlačítko „Další citát" / "Next quote" ---
   // Záměrně viditelné pořád (ne jen po složení): slouží i k přeskočení
   // citátu; zadání ho vyžaduje jako reset po dokončení.
   textFont("sans-serif");
   textSize(U.fontSize);
-  const label = "Další citát";
+  const label = STRINGS[lang].next;
   const bw = textWidth(label) + 26;
   const bx = x1 - bw, by = ty + U.toggleH + U.gap;
   uiRects.next = { x: bx, y: by, w: bw, h: U.buttonH };
@@ -1260,12 +1319,54 @@ function drawUI() {
   textAlign(CENTER, CENTER);
   text(label, bx + bw / 2, by + U.buttonH / 2 - 1);
 
+  // --- přepínač jazyka: vlajka + název jazyka v tom jazyce ---
+  const llabel = STRINGS[lang].langName;
+  const flagW = 20, flagH = 13;
+  const lw = textWidth(llabel) + flagW + 32;
+  const lx = x1 - lw, ly = by + U.buttonH + U.gap;
+  uiRects.lang = { x: lx, y: ly, w: lw, h: U.buttonH };
+  fill(red(tc), green(tc), blue(tc), 50);
+  rect(lx, ly, lw, U.buttonH, U.buttonH / 2);
+  drawFlag(lang, lx + 11, ly + (U.buttonH - flagH) / 2, flagW, flagH);
+  fill(tc);
+  textAlign(LEFT, CENTER);
+  text(llabel, lx + 11 + flagW + 7, ly + U.buttonH / 2 - 1);
+
   // kurzor ruky nad klikacími prvky
-  const over = ["toggle", "next", "sound"].some(k => {
+  const over = ["toggle", "next", "sound", "lang"].some(k => {
     const r = uiRects[k];
     return mouseX >= r.x && mouseX <= r.x + r.w && mouseY >= r.y && mouseY <= r.y + r.h;
   });
   cursor(over ? HAND : ARROW);
+}
+
+// Vlajka kreslená z primitiv (žádné obrázky): česká, zjednodušený Union Jack.
+function drawFlag(l, x, y, w, h) {
+  noStroke();
+  if (l === "cs") {
+    fill(255);
+    rect(x, y, w, h / 2);
+    fill(215, 20, 26);
+    rect(x, y + h / 2, w, h / 2);
+    fill(17, 69, 126);
+    triangle(x, y, x, y + h, x + w * 0.45, y + h / 2);
+  } else {
+    fill(1, 33, 105);
+    rect(x, y, w, h);
+    stroke(255); strokeWeight(2.4);
+    line(x, y, x + w, y + h);
+    line(x + w, y, x, y + h);
+    stroke(200, 16, 46); strokeWeight(1.1);
+    line(x, y, x + w, y + h);
+    line(x + w, y, x, y + h);
+    stroke(255); strokeWeight(3.6);
+    line(x + w / 2, y, x + w / 2, y + h);
+    line(x, y + h / 2, x + w, y + h / 2);
+    stroke(200, 16, 46); strokeWeight(2);
+    line(x + w / 2, y, x + w / 2, y + h);
+    line(x, y + h / 2, x + w, y + h / 2);
+    noStroke();
+  }
 }
 
 function mousePressed() {
@@ -1276,6 +1377,7 @@ function mousePressed() {
       if (k === "toggle") dayTarget = 1 - dayTarget;
       if (k === "next") startScene(false);
       if (k === "sound") { soundOn = !soundOn; audioEnsure(); }
+      if (k === "lang") { setLang(lang === "cs" ? "en" : "cs"); startScene(false); }
       return;
     }
   }
@@ -1286,6 +1388,10 @@ function keyPressed() {
   if (key === "m" || key === "M") dayTarget = 1 - dayTarget;          // den/noc
   if (key === "n" || key === "N") startScene(false);                  // další citát
   if (key === "z" || key === "Z") { soundOn = !soundOn; audioEnsure(); } // zvuk
+  if (key === "l" || key === "L") {                                   // jazyk
+    setLang(lang === "cs" ? "en" : "cs");
+    startScene(false);
+  }
 }
 
 // =====================================================================

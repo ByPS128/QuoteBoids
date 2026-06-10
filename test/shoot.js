@@ -80,11 +80,20 @@ try {
   console.log("po resetu:", JSON.stringify(state3, null, 1));
   await page.screenshot({ path: path.join(__dirname, "reset.png") });
 
+  // přepnutí jazyka klávesou L — citát se vybere z druhé sady
+  const langBefore = await page.evaluate(() => lang);
+  await page.keyboard.press("l");
+  await page.waitForTimeout(300);
+  const langState = await page.evaluate(() => ({ lang, quote: quote.text }));
+  console.log("jazyk:", langBefore, "->", langState.lang, "|", langState.quote);
+  const langOk = langState.lang !== langBefore;
+
   // verdikt se tiskne PŘED zavřením browseru — close() se systémovým
   // Chrome občas visí, proto je závoděný s timeoutem a pak tvrdý exit
   let fail = "";
   if (day < 0.95) fail = "přechod na den neproběhl, dayness=" + day;
   else if (!state2.done) fail = "quoteDoneAt nenastaveno";
+  else if (!langOk) fail = "přepnutí jazyka neproběhlo";
   else if (errors.length) fail = "chyby v konzoli:\n" + errors.join("\n");
   console.log(fail ? "FAIL: " + fail : "SMOKE-OK");
 

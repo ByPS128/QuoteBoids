@@ -38,8 +38,15 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
   (scene, birds, flight, wings, anim, birdShape, timing, perch, perchBar,
   audio, personality, avoid, transition, palette, quote, layout, theme, ui).
   Magická čísla nepatří do kódu.
-- **`QUOTES`** — offline pole `{ text, author }`, vybírá se náhodně; při
-  resetu vždy jiný než aktuální.
+- **`QUOTES`** — offline zásoba `{ text, author }` po jazycích
+  (`QUOTES.cs` / `QUOTES.en`, ~20 citátů každý); vybírá se náhodně z aktuální
+  sady, při resetu vždy jiný než aktuální.
+- **Jazyk (i18n)** — `lang` ∈ cs/en: `detectLang()` čte `localStorage`
+  (klíč `quoteboids-lang`), jinak `navigator.language` (sk → cs). Texty UI
+  ve `STRINGS`. Přepínač = tlačítko s procedurální vlajkou (`drawFlag`,
+  CZ trikolóra / zjednodušený Union Jack) + názvem jazyka v tom jazyce;
+  klávesa `L`. Přepnutí volá `startScene(false)` (starý citát odejde
+  tranzicí).
 - **Layout** (`computeLayout`): zalomení po slovech přes `textWidth()`,
   max šířka řádku = `layout.maxLineWidthRatio × width`, font se zmenšuje,
   dokud se nejširší slovo nevejde. Cílová pozice znaku = střed glyfu,
@@ -85,6 +92,7 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
 - **Tranzice odchodu citátu** — při „Další citát" se položené znaky zachytí
   do `outgoing` (PŘED výběrem nového citátu!) a odejdou náhodnou variantou:
   `fade`/`gravity`/`scatter`/`rise` (`TRANSITIONS`, `CONFIG.transition`),
+  ale **nikdy stejnou dvakrát po sobě** (`lastTransitionType`);
   s náhodným staggerem per písmeno; autor odchází s nimi. Kreslí
   `drawOutgoing(f)` pod novým citátem.
 - **Po posledním písmenu letí ptáček rovnou na hrad** (z `dropping` přímo
@@ -97,9 +105,11 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
 - **Den/noc** — `dayness` 0..1 plynule dojíždí k `dayTarget` za
   `modeTransitionMs`; všechny barvy přes `themeLerp(key)`. Noc = hvězdy +
   srpek měsíce, den = slunce s paprsky (crossfade). Výchozí je noc.
-- **UI** — kreslené přímo na plátno (žádný DOM): přepínač zvuku + pill
-  přepínač den/noc + tlačítko „Další citát" vpravo nahoře; hitboxy
-  v `uiRects`. Klávesy: `M` den/noc, `N` další citát, `Z` zvuk.
+- **UI** — kreslené přímo na plátno (žádný DOM): přepínač zvuku (repráček —
+  membrána se rozšiřuje DOPRAVA, špička vypadala jako šipka) + pill přepínač
+  den/noc + tlačítko „Další citát"/"Next quote" + přepínač jazyka s vlajkou;
+  hitboxy v `uiRects`. Klávesy: `M` den/noc, `N` další citát, `Z` zvuk,
+  `L` jazyk.
 
 ## Konvence / preference autora
 

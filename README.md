@@ -35,7 +35,11 @@ python -m http.server 8000   # pak http://localhost:8000
   až po první interakci se stránkou. Klávesa: `Z`.
 - **Další citát** (tlačítko vpravo nahoře) — reset: starý citát opustí scénu
   náhodně vybranou tranzicí (rozplynutí, pád s gravitací, rozlet do stran,
-  vyplutí vzhůru) a ptáčci začnou skládat nový. Klávesa: `N`.
+  vyplutí vzhůru; nikdy dvakrát stejnou po sobě) a ptáčci začnou skládat
+  nový. Klávesa: `N`.
+- **Jazyk** (vlajka + název jazyka vpravo nahoře) — čeština / angličtina:
+  vlastní sada citátů i texty UI. Výchozí jazyk se detekuje z prohlížeče
+  (`navigator.language`), volba se pamatuje v `localStorage`. Klávesa: `L`.
 - Okno jde libovolně měnit — layout citátu i hrad se přepočítají.
 
 Každý ptáček má vlastní povahu (loudal ↔ horlivec — rychlost letu i délka
