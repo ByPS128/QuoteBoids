@@ -167,7 +167,18 @@ const CONFIG = {
     staggerMs: 350,              // max náhodné zpoždění startu jednotlivých písmen
     gravity: 0.55,               // zrychlení pádu (varianta „gravity")
     scatterSpeed: 3.0,           // počáteční rychlost rozletu (varianta „scatter")
-    riseAccel: 0.06,             // zrychlení stoupání (varianta „rise" — balónky)
+    riseAccel: 0.06,             // zrychlení stoupání (varianta „rise")
+    // varianta „balloons": písmena odlétají na barevných balóncích,
+    // řádek po řádku odshora; všechny balónky unáší společný vítr
+    balloons: {
+      rowDelayMs: 700,           // rozestup startu jednotlivých řádků
+      withinRowMs: 500,          // cik-cak rozptyl balónků uvnitř řádku
+      riseAccel: 0.05,           // zrychlení stoupání
+      riseMax: 3.8,              // strop rychlosti stoupání
+      popMs: 180,                // nafouknutí balónku (scale 0 → 1)
+      tailMs: 4500,              // dojezd po startu posledního řádku
+      lighten: 0.35,             // o kolik světlejší než barvy ptáčků
+    },
   },
 
   // --- Paleta barev ptáčků (každý ptáček = 1 barva) ---
@@ -284,10 +295,8 @@ QUOTES.en = [
 // Jazyk (čeština / angličtina) — citáty i texty UI
 // =====================================================================
 const STRINGS = {
-  cs: { next: "Další citát", langName: "Čeština",
-        copyLink: "Zkopírovat odkaz", copied: "Odkaz zkopírován ✓" },
-  en: { next: "Next quote", langName: "English",
-        copyLink: "Copy link", copied: "Link copied ✓" },
+  cs: { next: "Další citát", copyLink: "Zkopírovat odkaz", copied: "Odkaz zkopírován ✓" },
+  en: { next: "Next quote", copyLink: "Copy link", copied: "Link copied ✓" },
 };
 
 // Detekce: uložená volba má přednost, jinak jazyk prohlížeče
@@ -1190,9 +1199,9 @@ function checkQuoteDone() {
 //   "rise"    — vyplavou nahoru jako balónky, s jemným vlněním.
 // Každé písmeno startuje s malým náhodným zpožděním (stagger) — působí to
 // organicky, ne jako mechanický povel. Autor odchází spolu s písmeny.
-const TRANSITIONS = ["fade", "gravity", "scatter", "rise"];
+const TRANSITIONS = ["fade", "gravity", "scatter", "rise", "balloons"];
 
-let outgoing = null; // {type, t0, items: [{ch, x, y, size, vx, vy, delay, sway}]}
+let outgoing = null; // {type, t0, endMs, items: [{ch, x, y, size, vx, vy, delay, …}]}
 let lastTransitionType = null; // ochrana proti stejné tranzici dvakrát po sobě
 
 function captureOutgoing() {
@@ -1201,17 +1210,29 @@ function captureOutgoing() {
   // náhodný výběr, ale nikdy stejný typ jako při minulém odchodu
   const type = random(TRANSITIONS.filter(t => t !== lastTransitionType));
   lastTransitionType = type;
+  const T = CONFIG.transition;
   const cx = width / 2, cy = height / 2;
+
+  // u balónků odlétají řádky odshora — zjisti pořadí řádku každého znaku
+  const rowYs = [...new Set(placed.map(l => l.y))].sort((a, b) => a - b);
+  const rowOf = new Map(rowYs.map((y, i) => [y, i]));
+
   const items = placed.map(l =>
-    makeOutItem(l.ch, l.x, l.y, letters.quoteFontSize, type, cx, cy));
+    makeOutItem(l.ch, l.x, l.y, letters.quoteFontSize, type, cx, cy, rowOf.get(l.y)));
   if (quoteDoneAt > 0) {
+    // autor odlétá jako úplně poslední řádek
     items.push(makeOutItem("— " + quote.author, authorPos.x, authorPos.y,
-      CONFIG.quote.authorFontSize, type, cx, cy));
+      CONFIG.quote.authorFontSize, type, cx, cy, rowYs.length));
   }
-  outgoing = { type, t0: millis(), items };
+
+  // konec tranzice: balónky potřebují čas podle počtu řádků, ostatní fixní
+  const endMs = type === "balloons"
+    ? rowYs.length * T.balloons.rowDelayMs + T.balloons.withinRowMs + T.balloons.tailMs
+    : T.durationMs + T.staggerMs;
+  outgoing = { type, t0: millis(), endMs, items };
 }
 
-function makeOutItem(ch, x, y, size, type, cx, cy) {
+function makeOutItem(ch, x, y, size, type, cx, cy, row) {
   const T = CONFIG.transition;
   const it = { ch, x, y, size, vx: 0, vy: 0,
     delay: random(T.staggerMs), sway: random(TWO_PI) };
@@ -1223,6 +1244,16 @@ function makeOutItem(ch, x, y, size, type, cx, cy) {
     it.vy = Math.sin(a) * sp;
   }
   if (type === "gravity") it.vx = random(-0.4, 0.4);
+  if (type === "balloons") {
+    const B = T.balloons;
+    // řádky startují odshora; uvnitř řádku dostávají písmena balónky
+    // cik-cak (náhodně) během withinRowMs — a hned jak balónek mají, letí
+    it.delay = row * B.rowDelayMs + random(B.withinRowMs);
+    // balónek: světlejší odstín náhodné barvy z palety ptáčků
+    it.bCol = lerpColor(color(random(CONFIG.palette)), color(255), B.lighten);
+    it.windF = random(0.75, 1.3);  // jak moc tenhle balónek poslouchá vítr
+    it.seed = random(1000);        // vlastní příměs k větru (ne řasy ve vodě)
+  }
   return it;
 }
 
@@ -1230,14 +1261,20 @@ function drawOutgoing(f) {
   if (!outgoing) return;
   const T = CONFIG.transition;
   const now = millis();
-  if (now > outgoing.t0 + T.durationMs + T.staggerMs) { outgoing = null; return; }
+  if (now > outgoing.t0 + outgoing.endMs) { outgoing = null; return; }
   const col = themeLerp("text");
   textFont(quoteFont());
   textAlign(CENTER, CENTER);
   noStroke();
+
+  // společný vítr pro balónky: pomalý Perlin noise, každý balónek si k němu
+  // přidává vlastní příměs — hýbou se PODOBNĚ, ale ne stejně (žádné řasy)
+  const wind = (noise(9000, now * 0.00045) - 0.5) * 2.2;
+
   for (const it of outgoing.items) {
     const t = constrain((now - outgoing.t0 - it.delay) / T.durationMs, 0, 1);
-    if (t > 0) {
+    const started = now >= outgoing.t0 + it.delay;
+    if (started) {
       switch (outgoing.type) {
         case "fade":
           it.y -= 0.25 * f;
@@ -1259,17 +1296,79 @@ function drawOutgoing(f) {
           it.y += it.vy * f;
           it.x += Math.sin(now * 0.004 + it.sway) * 0.6 * f;
           break;
+        case "balloons": {
+          const B = T.balloons;
+          // stoupání: postupná akcelerace se stropem
+          it.vy = Math.max(it.vy - B.riseAccel * f, -B.riseMax);
+          // vodorovně balónek měkce dojíždí k větru + vlastní příměsi
+          const wt = wind * it.windF + (noise(it.seed, now * 0.0009) - 0.5) * 0.9;
+          it.vx += (wt - it.vx) * 0.06 * f;
+          it.x += it.vx * f;
+          it.y += it.vy * f;
+          break;
+        }
       }
     }
-    // pohybové varianty mizí až ke konci (do té doby letí plně viditelné)
-    const alpha = (outgoing.type === "fade" || outgoing.type === "rise")
-      ? 255 * (1 - t)
-      : 255 * (1 - Math.max(0, t - 0.75) * 4);
+
+    if (it.y < -it.size * 3) continue; // už mimo obraz nahoře
+
+    // balónek se kreslí POD písmenem v pořadí, ale NAD ním v prostoru
+    if (outgoing.type === "balloons" && started) {
+      drawBalloon(it, now);
+    }
+
+    // alpha: fade/rise mizí postupně, balónky letí plné až mimo obraz,
+    // gravity/scatter mizí těsně před koncem
+    let alpha = 255;
+    if (outgoing.type === "fade" || outgoing.type === "rise") alpha = 255 * (1 - t);
+    else if (outgoing.type !== "balloons") alpha = 255 * (1 - Math.max(0, t - 0.75) * 4);
     if (alpha <= 0) continue;
     fill(red(col), green(col), blue(col), alpha);
     textSize(it.size);
     text(it.ch, it.x, it.y);
   }
+}
+
+// Balónek nesoucí písmeno: stínovaná koule s odleskem, uzlíkem („balónková
+// prdelka") a prohnutým provázkem k písmenu. Ve větru se mírně naklání.
+function drawBalloon(it, now) {
+  const B = CONFIG.transition.balloons;
+  // pozn.: NEpojmenovávat „pop" — zastínilo by p5 funkci pop() níže!
+  const inflate = constrain((now - outgoing.t0 - it.delay) / B.popMs, 0, 1);
+  const s = inflate * inflate * (3 - 2 * inflate); // smoothstep nafouknutí
+  const br = (it.size * 0.38 + 6) * s;          // poloměr dle velikosti písma
+  if (br <= 0.5) return;
+
+  const lean = constrain(it.vx * 0.14, -0.45, 0.45); // náklon po větru
+  const ax = it.x, ay = it.y - it.size * 0.55;       // úchyt provázku u písmene
+  const bx = ax + lean * 38;                          // střed balónku (ve výšce)
+  const by = ay - 16 - br * 1.05;
+
+  // provázek: jemně prohnutá křivka od písmene k uzlíku
+  const c = it.bCol;
+  stroke(red(c), green(c), blue(c), 220 * s);
+  strokeWeight(1.2);
+  noFill();
+  bezier(ax, ay, ax + lean * 10, ay - 8, bx - lean * 8, by + br + 9, bx, by + br + 4);
+  noStroke();
+
+  push();
+  translate(bx, by);
+  rotate(lean);
+  // tělo balónku (lehce protáhlé) + tmavší spodek = stínování
+  fill(red(c), green(c), blue(c), 245);
+  ellipse(0, 0, br * 1.72, br * 2);
+  fill(lerpColor(c, color(0, 0, 40), 0.25));
+  ellipse(0, br * 0.45, br * 1.3, br * 0.9);
+  fill(red(c), green(c), blue(c), 245);
+  ellipse(0, br * 0.18, br * 1.6, br * 1.5);
+  // odlesk vlevo nahoře
+  fill(255, 255, 255, 150);
+  ellipse(-br * 0.42, -br * 0.45, br * 0.5, br * 0.72);
+  // uzlík — balónková prdelka
+  fill(lerpColor(c, color(0, 0, 40), 0.2));
+  triangle(-br * 0.18, br * 0.98, br * 0.18, br * 0.98, 0, br * 0.78);
+  pop();
 }
 
 // =====================================================================
@@ -1366,7 +1465,8 @@ function drawSky(f) {
     meteor = {
       x: random(width * 0.25, width * 0.95),
       y: random(height * 0.04, height * 0.35),
-      vx: -random(4, 7), vy: random(1.5, 3),
+      vx: -random(4, 7), vy: random(1.2, 2.2),
+      g: random(0.035, 0.06), // gravitace: dráha se stáčí k zemi obloukem
       tail: random(40, 110), t0: now,
     };
   }
@@ -1376,6 +1476,9 @@ function drawSky(f) {
       meteor = null;
       nextMeteorAt = now + random(SK.meteorMsMin, SK.meteorMsMax);
     } else {
+      // mírný gravitační oblouk (velký rádius — žádná komická parabola);
+      // ohon sleduje aktuální směr letu, takže se zakřivuje s dráhou
+      meteor.vy += meteor.g * f;
       meteor.x += meteor.vx * f;
       meteor.y += meteor.vy * f;
       const a = Math.sin(p * PI) * nightA; // plynule se rozsvítí a zhasne
@@ -1584,15 +1687,18 @@ function drawUI() {
   // (mobil) se přebývající prvky zalomí na další řádek — nic nepřekrývá
   // ptáčky na hradě
   textFont("sans-serif");
-  textSize(U.fontSize);
   const nextLabel = STRINGS[lang].next;
-  const langLabel = STRINGS[lang].langName;
-  const flagW = 20, flagH = 13;
+  // segmentový přepínač jazyka: [vlajka CZ | vlajka EN], aktivní podsvícený —
+  // je vidět stav i to, kam jde kliknout (žádná nejasnost „stav vs. akce")
+  const flagW = 18, flagH = 12;
+  textSize(12);
+  const segW = flagW + 5 + Math.max(textWidth("CZ"), textWidth("EN")) + 14;
+  textSize(U.fontSize);
   const items = [
     { k: "toggle", w: U.toggleW },
     { k: "sound", w: 46 },
     { k: "next", w: textWidth(nextLabel) + 26 },
-    { k: "lang", w: textWidth(langLabel) + flagW + 32 },
+    { k: "lang", w: segW * 2 + 6 },
   ];
   let px = width - U.marginRight, py = U.marginTop;
   for (const it of items) {
@@ -1672,15 +1778,32 @@ function drawUI() {
     text(nextLabel, it.x + it.w / 2, it.y + U.buttonH / 2 - 1);
   }
 
-  // --- přepínač jazyka: vlajka + název jazyka v tom jazyce ---
+  // --- přepínač jazyka: segmenty [CZ | EN], aktivní podsvícený ---
   {
     const it = get("lang");
     fill(red(tc), green(tc), blue(tc), 50);
     rect(it.x, it.y, it.w, U.buttonH, U.buttonH / 2);
-    drawFlag(lang, it.x + 11, it.y + (U.buttonH - flagH) / 2, flagW, flagH);
-    fill(tc);
+    const activeIdx = lang === "cs" ? 0 : 1;
+    // podsvícení aktivního segmentu
+    fill(red(tc), green(tc), blue(tc), 70);
+    rect(it.x + 3 + activeIdx * segW, it.y + 3, segW, U.buttonH - 6,
+      (U.buttonH - 6) / 2);
+    textSize(12);
     textAlign(LEFT, CENTER);
-    text(langLabel, it.x + 11 + flagW + 7, it.y + U.buttonH / 2 - 1);
+    const segLangs = ["cs", "en"], segCodes = ["CZ", "EN"];
+    for (let i = 0; i < 2; i++) {
+      const sx = it.x + 3 + i * segW;
+      drawFlag(segLangs[i], sx + 8, it.y + (U.buttonH - flagH) / 2, flagW, flagH);
+      if (i !== activeIdx) {
+        // neaktivní segment ztlumit závojem v barvě pozadí
+        const bg = themeLerp("bg");
+        fill(red(bg), green(bg), blue(bg), 110);
+        rect(sx, it.y + 2, segW, U.buttonH - 4, (U.buttonH - 4) / 2);
+      }
+      fill(red(tc), green(tc), blue(tc), i === activeIdx ? 255 : 150);
+      text(segCodes[i], sx + 8 + flagW + 5, it.y + U.buttonH / 2 - 1);
+    }
+    textSize(U.fontSize);
   }
 
   // kurzor ruky nad klikacími prvky
@@ -1740,7 +1863,11 @@ function mousePressed() {
       if (k === "toggle") dayTarget = 1 - dayTarget;
       if (k === "next") startScene(false);
       if (k === "sound") { soundOn = !soundOn; audioEnsure(); }
-      if (k === "lang") { setLang(lang === "cs" ? "en" : "cs"); startScene(false); }
+      if (k === "lang") {
+        // klik na konkrétní segment (levá půlka = CZ, pravá = EN)
+        const target = mouseX < r.x + r.w / 2 ? "cs" : "en";
+        if (target !== lang) { setLang(target); startScene(false); }
+      }
       if (k === "copy") {
         copyText(location.href);
         toastText = STRINGS[lang].copied;

@@ -46,10 +46,14 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
   sady, při resetu vždy jiný než aktuální.
 - **Jazyk (i18n)** — `lang` ∈ cs/en: `detectLang()` čte `localStorage`
   (klíč `quoteboids-lang`), jinak `navigator.language` (sk → cs). Texty UI
-  ve `STRINGS`. Přepínač = tlačítko s procedurální vlajkou (`drawFlag`,
-  CZ trikolóra / zjednodušený Union Jack) + názvem jazyka v tom jazyce;
-  klávesa `L`. Přepnutí volá `startScene(false)` (starý citát odejde
-  tranzicí).
+  ve `STRINGS`. Přepínač = SEGMENTOVÝ `[CZ | EN]` s procedurálními
+  vlajkami (`drawFlag`): aktivní segment podsvícený, neaktivní ztlumený
+  závojem — je vidět stav i cíl kliknutí (feedback autora: dřívější
+  „vlajka + název" nešlo poznat, jestli ukazuje stav nebo akci). Klik
+  na polovinu hitboxu vybírá konkrétní jazyk; klávesa `L` přepíná.
+  Přepnutí volá `startScene(false)` (starý citát odejde tranzicí).
+- **Meteor** má gravitaci (`meteor.g`) — dráha se stáčí k zemi mírným
+  obloukem, ohon sleduje aktuální rychlost, takže se zakřivuje s ní.
 - **Layout** (`computeLayout`): zalomení po slovech přes `textWidth()`,
   max šířka řádku = `layout.maxLineWidthRatio × width`, font se zmenšuje,
   dokud se nejširší slovo nevejde. Cílová pozice znaku = střed glyfu,
@@ -94,10 +98,20 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
   (vyžádáno autorem).
 - **Tranzice odchodu citátu** — při „Další citát" se položené znaky zachytí
   do `outgoing` (PŘED výběrem nového citátu!) a odejdou náhodnou variantou:
-  `fade`/`gravity`/`scatter`/`rise` (`TRANSITIONS`, `CONFIG.transition`),
-  ale **nikdy stejnou dvakrát po sobě** (`lastTransitionType`);
-  s náhodným staggerem per písmeno; autor odchází s nimi. Kreslí
-  `drawOutgoing(f)` pod novým citátem.
+  `fade`/`gravity`/`scatter`/`rise`/`balloons` (`TRANSITIONS`,
+  `CONFIG.transition`), ale **nikdy stejnou dvakrát po sobě**
+  (`lastTransitionType`); s náhodným staggerem per písmeno; autor odchází
+  s nimi. Kreslí `drawOutgoing(f)` pod novým citátem; konec řídí
+  `outgoing.endMs` (balónky potřebují čas dle počtu řádků).
+- **Balónky (`balloons`)** — písmena odlétají na balóncích **řádek po
+  řádku odshora** (row z y-souřadnice, autor poslední); uvnitř řádku
+  dostávají balónky cik-cak během `withinRowMs` a hned stoupají
+  (akcelerace se stropem). Vítr = sdílený Perlin noise + vlastní příměs
+  per balónek (`windF`, `seed`) — hýbou se podobně, ne stejně. Balónek
+  kreslí `drawBalloon`: stínovaná koule s odleskem, uzlík, prohnutý
+  provázek (bezier), náklon po větru; barvy = paleta ptáčků zesvětlená
+  o `lighten`. POZOR: nepojmenovávat lokální proměnnou `pop` — zastíní
+  p5 funkci `pop()` (stalo se, padalo to).
 - **Po posledním písmenu letí ptáček rovnou na hrad** (z `dropping` přímo
   `flyingToPerch` když je `taskQueue` prázdná) — odlet ze scény a návrat
   působil rušivě (feedback autora). Stejně tak: ptáček v `departing` se při
