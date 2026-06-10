@@ -140,17 +140,26 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
 - **Režim spořiče** — `updateAutoNext()`: po složení citátu a
   `scene.autoNextMs` klidu (interakce odkládají přes `lastInteractionMs`)
   sám spustí další citát. 0 = vypnuto.
-- **Břečťan (FEATURE FLAG `CONFIG.ivy.enabled`)** — po složení citátu
-  (+`growDelayMs`) vyrostou 1–2 úponky kolem textu: `quoteBounds()` =
-  zakázaný obdélník (citát + autor + tlačítko odkazu, s marginem);
-  „below" jde vždy, „left"/„right" jen při `sideMinSpace` volného místa
-  (mobil na výšku ⇒ automaticky dole). Stonek = náhodná procházka
-  (noise + přitahování k základnímu směru + tvrdé odstrčení od textu
-  a okrajů), lístky se střídají po stranách a rozvíjejí se, jak stonek
-  dorůstá (`drawIvy`, smoothstep přes `growMs`). Při `startScene` se
-  rozplyne (`ivy.dying`, `fadeMs`); resize ⇒ `ivy = null` (vyroste znovu
-  k novému layoutu). `perchDecor` přidává pár lístků na konce bydýlka.
-  Barvy lerpují den/noc (`leafNight/Day`, `stemNight/Day`).
+- **Břečťan (FEATURE FLAG `CONFIG.ivy.enabled`)** — procedurální větvička
+  podle (neviditelné) vodící linky, předloha `brectan.png` (v repu není,
+  jen lokálně). Pipeline: `quoteBounds()` (zakázaný obdélník: citát +
+  autor + tlačítko odkazu) → `controlPointsFor(side)` (kontrolní body;
+  „below" vždy, „left/right" jen při `sideMinSpace` místa — mobil na
+  výšku ⇒ dole) → `buildIvyPath` (Catmull-Rom přes `curvePoint`,
+  resampling na 4px krok délky) → `makeVine`: stonek = linka + oscilace
+  po normále (sin+noise, `waveAmplitude/Frequency`, báze drží na lince),
+  zužuje se (`stemThickness`→0.9), zrnité tečkování (`speckleEvery`),
+  listy střídavě po stranách s řapíkem (`leafSpacing/Size/SizeVar`,
+  `leafTipShrink` u špičky, `rotJitterDeg`). List = 5-laločný obrys
+  (`IVY_LOBES` — gaussovské hrby na poloměru, srdcovitá báze; cache
+  `ivyLeafOutline`), variegovaná výplň přes **canvas clip**
+  (`drawingContext`, skvrny deterministicky z `noise(seed,…)` — žádné
+  blikání), skoro bílé žilky do špiček laloků, tmavý obrys s konstantní
+  px tloušťkou (`lineWidth = 1.4/(size*scl)`). Růst: `growT = s ×
+  growthSpeed`; list se spawne, když ho stonek míjí, klíčí
+  `easeOutBack` přes `leafGrowMs`. `seed` v CONFIGu = reprodukovatelná
+  větvička. Při `startScene` fade (`ivy.dying`), resize ⇒ `ivy = null`.
+  `perchDecor` = pár listů na koncích bydýlka (pevné seedy).
 - **Deep-link** — `?lang=cs&q=N` (1-based) vybere konkrétní citát
   (`applyUrlParams` v setup, `forcedQuoteIndex` jen pro první scénu);
   `updateUrl()` drží adresní řádek aktuální (replaceState, na file://
