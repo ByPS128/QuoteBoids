@@ -89,7 +89,11 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
   `drawOutgoing(f)` pod novým citátem.
 - **Po posledním písmenu letí ptáček rovnou na hrad** (z `dropping` přímo
   `flyingToPerch` když je `taskQueue` prázdná) — odlet ze scény a návrat
-  působil rušivě (feedback autora).
+  působil rušivě (feedback autora). Stejně tak: ptáček v `departing` se při
+  vyprázdnění zásobníku otočí na hrad ještě na scéně (poslední písmena mu
+  mezitím rozebrali ostatní — guard `!extraWait` kvůli odletům při resetu),
+  a ptáčkům ve `waiting` se při prázdném zásobníku pauza zkrátí na ≤500 ms,
+  ať na hrad nedolétají s mnohasekundovým zpožděním.
 - **Den/noc** — `dayness` 0..1 plynule dojíždí k `dayTarget` za
   `modeTransitionMs`; všechny barvy přes `themeLerp(key)`. Noc = hvězdy +
   srpek měsíce, den = slunce s paprsky (crossfade). Výchozí je noc.

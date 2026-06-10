@@ -541,7 +541,12 @@ class Bird {
 
       case S.WAITING:
         // mimo obrazovku; po vypršení pauzy si vezme další písmeno,
-        // a když už žádné nezbývá, letí rovnou na své místo na hradě
+        // a když už žádné nezbývá, letí rovnou na své místo na hradě.
+        // Při prázdném zásobníku nemá smysl vyčkávat celou pauzu —
+        // zkrátí se, ať ptáček dosedne na hrad bez dlouhého otálení.
+        if (taskQueue.length === 0) {
+          this.waitUntil = Math.min(this.waitUntil, now + 500);
+        }
         if (now >= this.waitUntil) {
           if (taskQueue.length > 0) {
             this.letter = letters[taskQueue.pop()];
@@ -624,6 +629,14 @@ class Bird {
         break;
 
       case S.DEPARTING: {
+        // Zásobník se mezitím vyprázdnil (poslední písmena si rozebrali
+        // ostatní) → nemá smysl odlétat ze scény a vracet se naprázdno;
+        // ptáček se otočí rovnou na hrad. Netýká se odletu při resetu
+        // (extraWait > 0) — tam je zásobník nového citátu plný.
+        if (taskQueue.length === 0 && !this.extraWait) {
+          this.setState(S.FLY_TO_PERCH);
+          break;
+        }
         // zrychluje pryč; po nabrání rychlosti už jen klidně plachtí
         this.steerTo(this.exit, f, CONFIG.flight.acceleration * 1.4, false);
         this.avoidOthers(f);
