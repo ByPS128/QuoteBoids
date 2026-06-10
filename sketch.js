@@ -20,6 +20,8 @@ const CONFIG = {
     starCount: 130,                // počet hvězd v nočním režimu
     autoNextMs: 25000,             // režim spořiče: po složení citátu a tolika
                                    // ms klidu se sám spustí další (0 = vypnuto)
+    celestialX: 90,                // pozice měsíce/slunce (vlevo nahoře,
+    celestialY: 140,               // kousek níž, ať nekoliduje s ovládáním)
   },
 
   // --- Nebe: vzácné odměny za dlouhé koukání ---
@@ -1305,7 +1307,7 @@ function drawBackdrop() {
   }
 
   // měsíc / slunce vlevo nahoře — crossfade při přechodu režimů
-  const cx = 90, cy = 95, R = 34;
+  const cx = CONFIG.scene.celestialX, cy = CONFIG.scene.celestialY, R = 34;
   const moonA = constrain(1 - dayness * 2, 0, 1);
   const sunA = constrain(dayness * 2 - 1, 0, 1);
   noStroke();
@@ -1576,93 +1578,110 @@ function sfxChirp(basePitch) {
 
 function drawUI() {
   const U = CONFIG.ui;
-  const x1 = width - U.marginRight;
+  const tc = themeLerp("text");
+
+  // --- rozložení: jedna vodorovná řada zprava doleva, na úzkém displeji
+  // (mobil) se přebývající prvky zalomí na další řádek — nic nepřekrývá
+  // ptáčky na hradě
+  textFont("sans-serif");
+  textSize(U.fontSize);
+  const nextLabel = STRINGS[lang].next;
+  const langLabel = STRINGS[lang].langName;
+  const flagW = 20, flagH = 13;
+  const items = [
+    { k: "toggle", w: U.toggleW },
+    { k: "sound", w: 46 },
+    { k: "next", w: textWidth(nextLabel) + 26 },
+    { k: "lang", w: textWidth(langLabel) + flagW + 32 },
+  ];
+  let px = width - U.marginRight, py = U.marginTop;
+  for (const it of items) {
+    if (px - it.w < 12) { px = width - U.marginRight; py += U.buttonH + U.gap; }
+    px -= it.w;
+    it.x = px;
+    it.y = py;
+    px -= U.gap;
+    uiRects[it.k] = { x: it.x, y: it.y, w: it.w, h: U.buttonH };
+  }
+  const get = k => items.find(i => i.k === k);
 
   // --- přepínač den/noc (pill s posuvným kolečkem) ---
-  const tx = x1 - U.toggleW, ty = U.marginTop;
-  uiRects.toggle = { x: tx, y: ty, w: U.toggleW, h: U.toggleH };
-  const tc = themeLerp("text");
-  noStroke();
-  fill(red(tc), green(tc), blue(tc), 50);
-  rect(tx, ty, U.toggleW, U.toggleH, U.toggleH / 2);
-  // ikonky na koncích dráhy: měsíc vlevo, slunce vpravo
-  fill(red(tc), green(tc), blue(tc), 160);
-  circle(tx + U.toggleH / 2, ty + U.toggleH / 2, 10);            // měsíc
-  fill(themeLerp("bg"));
-  circle(tx + U.toggleH / 2 + 3, ty + U.toggleH / 2 - 2, 9);     // srpek
-  stroke(red(tc), green(tc), blue(tc), 160); strokeWeight(1.5);
-  const sx = tx + U.toggleW - U.toggleH / 2, sy = ty + U.toggleH / 2;
-  for (let i = 0; i < 8; i++) {
-    const a = i / 8 * TWO_PI;
-    line(sx + Math.cos(a) * 5.5, sy + Math.sin(a) * 5.5,
-         sx + Math.cos(a) * 7.5, sy + Math.sin(a) * 7.5);
+  {
+    const it = get("toggle");
+    const tx = it.x, ty = it.y + (U.buttonH - U.toggleH) / 2;
+    noStroke();
+    fill(red(tc), green(tc), blue(tc), 50);
+    rect(tx, ty, U.toggleW, U.toggleH, U.toggleH / 2);
+    // ikonky na koncích dráhy: měsíc vlevo, slunce vpravo
+    fill(red(tc), green(tc), blue(tc), 160);
+    circle(tx + U.toggleH / 2, ty + U.toggleH / 2, 10);            // měsíc
+    fill(themeLerp("bg"));
+    circle(tx + U.toggleH / 2 + 3, ty + U.toggleH / 2 - 2, 9);     // srpek
+    stroke(red(tc), green(tc), blue(tc), 160); strokeWeight(1.5);
+    const sx = tx + U.toggleW - U.toggleH / 2, sy = ty + U.toggleH / 2;
+    for (let i = 0; i < 8; i++) {
+      const a = i / 8 * TWO_PI;
+      line(sx + Math.cos(a) * 5.5, sy + Math.sin(a) * 5.5,
+           sx + Math.cos(a) * 7.5, sy + Math.sin(a) * 7.5);
+    }
+    noStroke();
+    fill(red(tc), green(tc), blue(tc), 160);
+    circle(sx, sy, 7);                                              // slunce
+    // posuvné kolečko (pozice sleduje plynulý přechod dayness)
+    const knobX = lerp(tx + U.toggleH / 2, tx + U.toggleW - U.toggleH / 2, dayness);
+    fill(themeLerp("accent"));
+    circle(knobX, ty + U.toggleH / 2, U.toggleH - 8);
   }
-  noStroke();
-  fill(red(tc), green(tc), blue(tc), 160);
-  circle(sx, sy, 7);                                              // slunce
-  // posuvné kolečko (pozice sleduje plynulý přechod dayness)
-  const knobX = lerp(tx + U.toggleH / 2, tx + U.toggleW - U.toggleH / 2, dayness);
-  fill(themeLerp("accent"));
-  circle(knobX, ty + U.toggleH / 2, U.toggleH - 8);
 
-  // --- přepínač zvuku (pilulka s reproduktorem, vlevo od den/noc) ---
-  // širší tvar a kontrastnější ikona, ať je stav čitelný na první pohled
-  const sw = 46, sh = U.toggleH;
-  const sx0 = tx - sw - U.gap, sy0 = ty;
-  uiRects.sound = { x: sx0, y: sy0, w: sw, h: sh };
-  noStroke();
-  fill(red(tc), green(tc), blue(tc), 50);
-  rect(sx0, sy0, sw, sh, sh / 2);
-  // reproduktor: tělo (obdélníček) + membrána, která se rozšiřuje DOPRAVA —
-  // špička doprava vypadala jako šipka/play, tohle je klasický repráček
-  const scx = sx0 + sw / 2 - 5, scy = sy0 + sh / 2;
-  fill(red(tc), green(tc), blue(tc), 235);
-  rect(scx - 8, scy - 3.5, 5, 7, 1);
-  quad(scx - 3, scy - 3.5, scx + 3, scy - 8.5,
-       scx + 3, scy + 8.5, scx - 3, scy + 3.5);
-  if (soundOn) {
-    // dvě zvukové vlnky
-    noFill();
-    stroke(red(tc), green(tc), blue(tc), 235);
-    strokeWeight(2);
-    arc(scx + 6, scy, 11, 13, -QUARTER_PI, QUARTER_PI);
-    arc(scx + 6, scy, 19, 22, -QUARTER_PI, QUARTER_PI);
+  // --- přepínač zvuku (pilulka s reproduktorem) ---
+  {
+    const it = get("sound");
+    const sy0 = it.y + (U.buttonH - U.toggleH) / 2;
     noStroke();
-  } else {
-    // výrazné přeškrtnutí přes celou ikonu
-    stroke(red(tc), green(tc), blue(tc), 235);
-    strokeWeight(2.5);
-    line(scx - 8, scy + 8, scx + 14, scy - 8);
-    noStroke();
+    fill(red(tc), green(tc), blue(tc), 50);
+    rect(it.x, sy0, it.w, U.toggleH, U.toggleH / 2);
+    // reproduktor: tělo (obdélníček) + membrána rozšiřující se DOPRAVA
+    const scx = it.x + it.w / 2 - 5, scy = sy0 + U.toggleH / 2;
+    fill(red(tc), green(tc), blue(tc), 235);
+    rect(scx - 8, scy - 3.5, 5, 7, 1);
+    quad(scx - 3, scy - 3.5, scx + 3, scy - 8.5,
+         scx + 3, scy + 8.5, scx - 3, scy + 3.5);
+    if (soundOn) {
+      noFill();
+      stroke(red(tc), green(tc), blue(tc), 235);
+      strokeWeight(2);
+      arc(scx + 6, scy, 11, 13, -QUARTER_PI, QUARTER_PI);
+      arc(scx + 6, scy, 19, 22, -QUARTER_PI, QUARTER_PI);
+      noStroke();
+    } else {
+      stroke(red(tc), green(tc), blue(tc), 235);
+      strokeWeight(2.5);
+      line(scx - 8, scy + 8, scx + 14, scy - 8);
+      noStroke();
+    }
   }
 
   // --- tlačítko „Další citát" / "Next quote" ---
-  // Záměrně viditelné pořád (ne jen po složení): slouží i k přeskočení
-  // citátu; zadání ho vyžaduje jako reset po dokončení.
-  textFont("sans-serif");
-  textSize(U.fontSize);
-  const label = STRINGS[lang].next;
-  const bw = textWidth(label) + 26;
-  const bx = x1 - bw, by = ty + U.toggleH + U.gap;
-  uiRects.next = { x: bx, y: by, w: bw, h: U.buttonH };
-  fill(red(tc), green(tc), blue(tc), 50);
-  rect(bx, by, bw, U.buttonH, U.buttonH / 2);
-  fill(tc);
-  textAlign(CENTER, CENTER);
-  text(label, bx + bw / 2, by + U.buttonH / 2 - 1);
+  // Záměrně viditelné pořád (ne jen po složení): slouží i k přeskočení citátu.
+  {
+    const it = get("next");
+    fill(red(tc), green(tc), blue(tc), 50);
+    rect(it.x, it.y, it.w, U.buttonH, U.buttonH / 2);
+    fill(tc);
+    textAlign(CENTER, CENTER);
+    text(nextLabel, it.x + it.w / 2, it.y + U.buttonH / 2 - 1);
+  }
 
   // --- přepínač jazyka: vlajka + název jazyka v tom jazyce ---
-  const llabel = STRINGS[lang].langName;
-  const flagW = 20, flagH = 13;
-  const lw = textWidth(llabel) + flagW + 32;
-  const lx = x1 - lw, ly = by + U.buttonH + U.gap;
-  uiRects.lang = { x: lx, y: ly, w: lw, h: U.buttonH };
-  fill(red(tc), green(tc), blue(tc), 50);
-  rect(lx, ly, lw, U.buttonH, U.buttonH / 2);
-  drawFlag(lang, lx + 11, ly + (U.buttonH - flagH) / 2, flagW, flagH);
-  fill(tc);
-  textAlign(LEFT, CENTER);
-  text(llabel, lx + 11 + flagW + 7, ly + U.buttonH / 2 - 1);
+  {
+    const it = get("lang");
+    fill(red(tc), green(tc), blue(tc), 50);
+    rect(it.x, it.y, it.w, U.buttonH, U.buttonH / 2);
+    drawFlag(lang, it.x + 11, it.y + (U.buttonH - flagH) / 2, flagW, flagH);
+    fill(tc);
+    textAlign(LEFT, CENTER);
+    text(langLabel, it.x + 11 + flagW + 7, it.y + U.buttonH / 2 - 1);
+  }
 
   // kurzor ruky nad klikacími prvky
   const over = Object.values(uiRects).some(r =>

@@ -132,11 +132,13 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
   ticho selže). Tlačítko „Zkopírovat odkaz" pod autorem (`uiRects.copy`,
   existuje jen po složení) → `copyText` (clipboard API + execCommand
   fallback pro file://) + toast.
-- **UI** — kreslené přímo na plátno (žádný DOM): přepínač zvuku (repráček —
-  membrána se rozšiřuje DOPRAVA, špička vypadala jako šipka) + pill přepínač
-  den/noc + tlačítko „Další citát"/"Next quote" + přepínač jazyka s vlajkou;
-  hitboxy v `uiRects`. Klávesy: `M` den/noc, `N` další citát, `Z` zvuk,
-  `L` jazyk.
+- **UI** — kreslené přímo na plátno (žádný DOM): jedna VODOROVNÁ řada
+  vpravo nahoře skládaná zprava (toggle den/noc, zvuk, další citát, jazyk);
+  na úzkém displeji se přebývající prvky zalomí na další řádek — nesmí
+  překrývat ptáčky na hradě (feedback autora). Repráček: membrána se
+  rozšiřuje DOPRAVA (špička vypadala jako šipka). Měsíc/slunce je kvůli
+  tomu níž (`scene.celestialX/Y`). Hitboxy v `uiRects`. Klávesy: `M`
+  den/noc, `N` další citát, `Z` zvuk, `L` jazyk.
 
 ## Konvence / preference autora
 
