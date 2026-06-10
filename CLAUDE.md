@@ -140,6 +140,17 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
 - **Režim spořiče** — `updateAutoNext()`: po složení citátu a
   `scene.autoNextMs` klidu (interakce odkládají přes `lastInteractionMs`)
   sám spustí další citát. 0 = vypnuto.
+- **Břečťan (FEATURE FLAG `CONFIG.ivy.enabled`)** — po složení citátu
+  (+`growDelayMs`) vyrostou 1–2 úponky kolem textu: `quoteBounds()` =
+  zakázaný obdélník (citát + autor + tlačítko odkazu, s marginem);
+  „below" jde vždy, „left"/„right" jen při `sideMinSpace` volného místa
+  (mobil na výšku ⇒ automaticky dole). Stonek = náhodná procházka
+  (noise + přitahování k základnímu směru + tvrdé odstrčení od textu
+  a okrajů), lístky se střídají po stranách a rozvíjejí se, jak stonek
+  dorůstá (`drawIvy`, smoothstep přes `growMs`). Při `startScene` se
+  rozplyne (`ivy.dying`, `fadeMs`); resize ⇒ `ivy = null` (vyroste znovu
+  k novému layoutu). `perchDecor` přidává pár lístků na konce bydýlka.
+  Barvy lerpují den/noc (`leafNight/Day`, `stemNight/Day`).
 - **Deep-link** — `?lang=cs&q=N` (1-based) vybere konkrétní citát
   (`applyUrlParams` v setup, `forcedQuoteIndex` jen pro první scénu);
   `updateUrl()` drží adresní řádek aktuální (replaceState, na file://

@@ -45,6 +45,26 @@ const CONFIG = {
     durMsMax: 3800,                // (max)
   },
 
+  // --- Břečťan kolem složeného citátu (FEATURE FLAG) ---
+  ivy: {
+    enabled: true,               // zapnout/vypnout celou dekoraci břečťanu
+    perchDecor: true,            // pár lístků i na koncích bydýlka
+    growDelayMs: 2600,           // start růstu po složení citátu (po autorovi)
+    growMs: 6000,                // jak dlouho úponek roste
+    fadeMs: 800,                 // rozplynutí při odchodu scény
+    vinesMin: 1,                 // počet úponků (min)
+    vinesMax: 2,                 // počet úponků (max)
+    margin: 26,                  // bezpečný odstup od citátu i autora
+    stepPx: 6,                   // krok růstu stonku (jemnost křivky)
+    leafEveryPx: 26,             // průměrný rozestup lístků na stonku
+    sideMinSpace: 120,           // kolik místa musí být vedle citátu pro boční
+                                 // úponek (jinak — typicky mobil — roste dole)
+    leafNight: "#79BD92",        // lístky v noci (světlejší, ať jsou vidět)
+    leafDay: "#3E8E5C",          // lístky ve dne
+    stemNight: "#5E9778",        // stonek v noci
+    stemDay: "#33704D",          // stonek ve dne
+  },
+
   // --- Pérování větvičky (tlumený oscilátor) ---
   perchSpring: {
     stiffness: 0.025,              // tuhost pružiny (vyšší = rychlejší kmit)
@@ -435,6 +455,7 @@ function startScene(firstRun) {
   quote = q;
   quoteDoneAt = 0;
   nextSwapAt = 0;       // prohazování míst se plánuje až po složení citátu
+  if (ivy) ivy.dying = millis(); // břečťan se při odchodu scény rozplyne
   updateUrl();
 
   computeLayout();
@@ -594,6 +615,19 @@ function drawPerchBar() {
   line(g.x0, g.y, g.x0 - 8, g.y - 14);
   line(g.x1, g.y, g.x1 + 8, g.y - 14);
   strokeWeight(1);
+
+  // pár břečťanových lístků na koncích bydýlka (součást feature flagu)
+  if (CONFIG.ivy.enabled && CONFIG.ivy.perchDecor) {
+    const I = CONFIG.ivy;
+    const leafC = lerpColor(color(I.leafNight), color(I.leafDay), dayness);
+    const stemC = lerpColor(color(I.stemNight), color(I.stemDay), dayness);
+    drawIvyLeaf(g.x0 - 4, g.y - 7, -2.1, 8, 1, leafC, stemC, 1);
+    drawIvyLeaf(g.x0 + 2, g.y + 2, 1.9, 7, 1, leafC, stemC, 1);
+    drawIvyLeaf(g.x0 - 7, g.y - 12, -1.2, 6, 1, leafC, stemC, 1);
+    drawIvyLeaf(g.x1 + 4, g.y - 7, -1.0, 8, 1, leafC, stemC, 1);
+    drawIvyLeaf(g.x1 - 2, g.y + 2, 1.2, 7, 1, leafC, stemC, 1);
+    drawIvyLeaf(g.x1 + 7, g.y - 12, -1.9, 6, 1, leafC, stemC, 1);
+  }
 }
 
 // =====================================================================
@@ -1187,6 +1221,189 @@ function drawQuote() {
 // Po položení posledního písmene spustí fade-in autora.
 function checkQuoteDone() {
   if (letters.every(l => l.placed)) quoteDoneAt = millis();
+}
+
+// =====================================================================
+// Břečťan — dekorativní úponky kolem složeného citátu (CONFIG.ivy.enabled)
+// ---------------------------------------------------------------------
+// Po složení citátu (a doznění autora) vyrostou 1–2 úponky: vždy je
+// k dispozici prostor POD citátem, boční úponky jen když je vedle textu
+// dost místa (na výškovém mobilu tedy automaticky rostou dole). Stonek
+// je náhodná procházka řízená Perlin noise s přitahováním k základnímu
+// směru; do obdélníku textu nesmí (tvrdé odstrčení). Lístky se rozvíjejí
+// postupně, jak stonek roste. Při odchodu scény se břečťan rozplyne.
+// =====================================================================
+let ivy = null; // {vines: [{pts, cum, total, leaves}], t0, dying}
+
+// Obdélník, do kterého břečťan nesmí: citát + autor + tlačítko odkazu.
+function quoteBounds() {
+  const I = CONFIG.ivy;
+  const fs = letters.quoteFontSize;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const l of letters) {
+    x0 = Math.min(x0, l.x - fs * 0.5);
+    x1 = Math.max(x1, l.x + fs * 0.5);
+    y0 = Math.min(y0, l.y - fs * 0.6);
+    y1 = Math.max(y1, l.y + fs * 0.6);
+  }
+  // autor + „Zkopírovat odkaz" pod ním
+  y1 = Math.max(y1, authorPos.y + CONFIG.quote.authorFontSize * 2.8);
+  x0 = Math.min(x0, authorPos.x - 140);
+  x1 = Math.max(x1, authorPos.x + 140);
+  return { x0: x0 - I.margin, y0: y0 - I.margin,
+           x1: x1 + I.margin, y1: y1 + I.margin };
+}
+
+function updateIvy() {
+  const I = CONFIG.ivy;
+  if (!I.enabled) return;
+  if (quoteDoneAt > 0 && !ivy && millis() > quoteDoneAt + I.growDelayMs) {
+    buildIvy();
+  }
+}
+
+function buildIvy() {
+  const I = CONFIG.ivy;
+  const b = quoteBounds();
+  // pod citátem roste vždy; boky jen když je tam dost místa
+  const spots = ["below"];
+  if (b.x0 > I.sideMinSpace) spots.push("left");
+  if (width - b.x1 > I.sideMinSpace) spots.push("right");
+  const n = Math.min(spots.length,
+    Math.floor(random(I.vinesMin, I.vinesMax + 1)));
+  const vines = shuffle(spots).slice(0, n).map(side => makeVine(side, b));
+  ivy = { vines, t0: millis(), dying: 0 };
+}
+
+// Vygeneruje jeden úponek: polyline stonku + lístky podél něj.
+function makeVine(side, b) {
+  const I = CONFIG.ivy;
+  let x, y, baseAng, targetLen;
+  if (side === "below") {
+    x = lerp(b.x0, b.x1, random(0, 0.3));
+    y = b.y1 + random(4, 20);
+    baseAng = random(-0.12, 0.12);                       // roste doprava
+    targetLen = random(0.5, 0.85) * (b.x1 - b.x0);
+  } else if (side === "left") {
+    x = b.x0 - random(8, 20);
+    y = lerp(b.y0, b.y1, random(0.1, 0.4));
+    baseAng = HALF_PI + random(-0.15, 0.15);             // roste dolů
+    targetLen = random(120, Math.min(260, height - y - 40));
+  } else {
+    x = b.x1 + random(8, 20);
+    y = lerp(b.y0, b.y1, random(0.1, 0.4));
+    baseAng = HALF_PI + random(-0.15, 0.15);
+    targetLen = random(120, Math.min(260, height - y - 40));
+  }
+
+  const pts = [{ x, y }];
+  const cum = [0];
+  const leaves = [];
+  let a = baseAng;
+  let total = 0;
+  let nextLeafAt = random(I.leafEveryPx * 0.5, I.leafEveryPx);
+  let leafSide = random() < 0.5 ? 1 : -1;
+  const seed = random(1000);
+  const steps = Math.floor(targetLen / I.stepPx);
+
+  for (let i = 1; i <= steps; i++) {
+    // vlnění stonku: noise + přitahování k základnímu směru
+    a += (noise(seed, i * 0.13) - 0.5) * 0.6;
+    a = lerp(a, baseAng, 0.06);
+    let nx = x + Math.cos(a) * I.stepPx;
+    let ny = y + Math.sin(a) * I.stepPx;
+    // do textu ani mimo plátno stonek nesmí (tvrdé odstrčení po ose)
+    if (side === "below") ny = Math.max(ny, b.y1 + 4);
+    if (side === "left") nx = Math.min(nx, b.x0 - 4);
+    if (side === "right") nx = Math.max(nx, b.x1 + 4);
+    nx = constrain(nx, 14, width - 14);
+    ny = constrain(ny, 14, height - 14);
+    total += Math.hypot(nx - x, ny - y);
+    x = nx; y = ny;
+    pts.push({ x, y });
+    cum.push(total);
+    if (total >= nextLeafAt) {
+      leaves.push({
+        x, y,
+        ang: a + leafSide * random(HALF_PI * 0.6, HALF_PI * 1.1),
+        size: random(7, 13),
+        at: total, // lístek se rozvine, až sem stonek doroste
+      });
+      leafSide *= -1; // lístky se střídají po stranách stonku
+      nextLeafAt = total + random(I.leafEveryPx * 0.7, I.leafEveryPx * 1.3);
+    }
+  }
+  return { pts, cum, total, leaves };
+}
+
+// Jeden břečťanový lístek (špičatý ovál s řapíkem a žilkou).
+function drawIvyLeaf(x, y, ang, size, scl, leafC, stemC, alpha) {
+  if (scl <= 0.01) return;
+  push();
+  translate(x, y);
+  rotate(ang);
+  scale(scl);
+  stroke(red(stemC), green(stemC), blue(stemC), 200 * alpha);
+  strokeWeight(1);
+  line(0, 0, size * 0.35, 0);                       // řapík
+  noStroke();
+  fill(red(leafC), green(leafC), blue(leafC), 230 * alpha);
+  beginShape();                                     // špičatý list
+  vertex(size * 0.35, 0);
+  bezierVertex(size * 0.45, -size * 0.42, size * 1.05, -size * 0.3, size * 1.25, 0);
+  bezierVertex(size * 1.05, size * 0.3, size * 0.45, size * 0.42, size * 0.35, 0);
+  endShape(CLOSE);
+  stroke(red(stemC), green(stemC), blue(stemC), 130 * alpha);
+  strokeWeight(0.7);
+  line(size * 0.4, 0, size * 1.15, 0);              // středová žilka
+  pop();
+  noStroke();
+}
+
+function drawIvy(f) {
+  if (!ivy) return;
+  const I = CONFIG.ivy;
+  const now = millis();
+
+  // rozplynutí při odchodu scény
+  let alpha = 1;
+  if (ivy.dying) {
+    alpha = 1 - (now - ivy.dying) / I.fadeMs;
+    if (alpha <= 0) { ivy = null; return; }
+  }
+
+  const leafC = lerpColor(color(I.leafNight), color(I.leafDay), dayness);
+  const stemC = lerpColor(color(I.stemNight), color(I.stemDay), dayness);
+  const gp = constrain((now - ivy.t0) / I.growMs, 0, 1);
+  const grow = gp * gp * (3 - 2 * gp); // smoothstep růstu
+
+  for (const v of ivy.vines) {
+    const drawn = grow * v.total;
+    // stonek po předpočítané křivce, jen do dorostlé délky
+    stroke(red(stemC), green(stemC), blue(stemC), 220 * alpha);
+    noFill();
+    for (let i = 1; i < v.pts.length; i++) {
+      if (v.cum[i] > drawn) {
+        // částečný poslední segment
+        const f01 = (drawn - v.cum[i - 1]) / (v.cum[i] - v.cum[i - 1]);
+        if (f01 > 0) {
+          strokeWeight(lerp(2.4, 1, v.cum[i] / v.total));
+          line(v.pts[i - 1].x, v.pts[i - 1].y,
+            lerp(v.pts[i - 1].x, v.pts[i].x, f01),
+            lerp(v.pts[i - 1].y, v.pts[i].y, f01));
+        }
+        break;
+      }
+      strokeWeight(lerp(2.4, 1, v.cum[i] / v.total)); // stonek se zužuje
+      line(v.pts[i - 1].x, v.pts[i - 1].y, v.pts[i].x, v.pts[i].y);
+    }
+    noStroke();
+    // lístky se rozvíjejí, jak kolem nich stonek prorůstá
+    for (const lf of v.leaves) {
+      const scl = constrain((drawn - lf.at) / 40, 0, 1);
+      drawIvyLeaf(lf.x, lf.y, lf.ang, lf.size, scl, leafC, stemC, alpha);
+    }
+  }
 }
 
 // =====================================================================
@@ -1906,6 +2123,8 @@ function draw() {
   drawBackdrop();
   drawSky(f);      // meteor (noc), obláčky a vzdálené hejno (den)
   drawOutgoing(f); // odcházející starý citát (pod tím novým)
+  updateIvy();     // břečťan roste po složení citátu (feature flag)
+  drawIvy(f);
   drawQuote();
   updatePerchSpring(f);
   drawPerchBar();
@@ -1957,6 +2176,7 @@ function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
   buildStars();
   buildClouds();
+  ivy = null; // břečťan se po resize vygeneruje znovu k novému layoutu
   computeLayout();
   // sedící ptáčci se přesadí na přepočítané sloty hradu
   for (const b of birds) {

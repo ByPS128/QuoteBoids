@@ -61,6 +61,10 @@ animací (brzdění, otočka, dosednutí) jsou plynulé, bez skoků pózy.
 - **Režim spořiče** — po složení citátu a ~25 s klidu se sám spustí další
   citát; aplikace tak může běžet donekonečna (laditelné v
   `CONFIG.scene.autoNextMs`, 0 = vypnout).
+- **Břečťan** — po složení citátu vyrostou kolem textu 1–2 úponky
+  s lístky (pod citátem, na širokém okně i po stranách — nikdy přes
+  text); pár lístků zdobí i bydýlko. Při odchodu scény se rozplyne.
+  Feature flag: `CONFIG.ivy.enabled` (a `CONFIG.ivy.perchDecor`).
 
 ## Sdílení a instalace
 
