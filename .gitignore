@@ -1,0 +1,9 @@
+# ROM předlohy (copyright — nepatří do repa)
+*.rom
+
+# vygenerované screenshoty ze smoke testu
+test/*.png
+
+# případné lokální závislosti / pomocné soubory
+node_modules/
+.pr-desc.md
