@@ -59,6 +59,10 @@ const CONFIG = {
     //   "wreath" — klikatý věnec kolem dokola (A a B kousek od sebe)
     //   "behind" — elipsa ZA písmeny; písmena dostanou obrys, aby kontury
     //              zůstaly ostré a čitelné
+    // Na MALÉ OBRAZOVCE (mobil) ostatní varianty kvůli místu nevypadají
+    // dobře — kreslí se vždy jen jedna větvička POD citátem a autorem.
+    mobileBelowOnly: true,       // mobil: vynutit jediný scénář „pod citátem"
+    mobileMaxSide: 700,          // menší strana okna pod tuto mez = mobil
     sideMinSpace: 130,           // místo vedle citátu nutné pro boční větvičku
     wreathPoints: 12,            // počet kontrolních bodů věnce/elipsy
     padMin: 8,                   // odsazení věnce od obdélníku textu (min)
@@ -86,6 +90,13 @@ const CONFIG = {
     stemLight: "#C9AE93",        // světlé tečkování stonku
     leafFillLight: "#CFE3CE",    // základní světle šedozelená výplň
     leafFillDark: "#92AF95",     // tmavší skvrny variegace
+    // JARNÍ SYTOST listů: výplně se míchají směrem k jarní zeleni.
+    // 0 = původní šedozelený stav přesně dle předlohy (#CFE3CE/#92AF95),
+    // 1 = plná jarní zeleň (leafSpringLight/Dark). Připomínky čtenářů
+    // („maličko víc jarně zelené") ⇒ 0.45.
+    leafSpring: 0.45,
+    leafSpringLight: "#B9E89F",  // jarní cíl světlé výplně
+    leafSpringDark: "#6FBF63",   // jarní cíl tmavých skvrn
     veinColor: "#F2F7EE",        // skoro bílé žilky (+ světlé skvrnky)
     outlineColor: "#2A2A22",     // tmavý obrys listů
   },
@@ -324,6 +335,9 @@ QUOTES.cs = [
   { text: "Kdo nikdy neudělal chybu, nikdy nezkusil nic nového.", author: "Albert Einstein" },
   { text: "Naděje umírá poslední.", author: "české přísloví" },
   { text: "Kdo se bojí, nesmí do lesa.", author: "české přísloví" },
+  // latinské klasiky — záměrně v latině (stejné v obou jazykových sadách)
+  { text: "Cogito, ergo sum.", author: "René Descartes" },
+  { text: "Veni, vidi, vici.", author: "Julius Caesar" },
 ];
 
 QUOTES.en = [
@@ -348,6 +362,9 @@ QUOTES.en = [
   { text: "Anyone who has never made a mistake has never tried anything new.", author: "Albert Einstein" },
   { text: "Hope dies last.", author: "proverb" },
   { text: "Time is money.", author: "Benjamin Franklin" },
+  // Latin classics — intentionally in Latin (same in both language sets)
+  { text: "Cogito, ergo sum.", author: "René Descartes" },
+  { text: "Veni, vidi, vici.", author: "Julius Caesar" },
 ];
 
 // =====================================================================
@@ -1401,7 +1418,17 @@ function buildIvy() {
   if (b.x0 > I.sideMinSpace) spots.push("left");
   if (width - b.x1 > I.sideMinSpace) spots.push("right");
 
-  const layout = random(IVY_LAYOUTS.filter(l => l !== lastIvyLayout));
+  // na mobilu (malé obrazovce) vždy jen jedna větvička pod citátem —
+  // věnec, elipsa i boční varianty se tam kvůli místu nevejdou hezky
+  const small = Math.min(width, height) < I.mobileMaxSide;
+  let layout;
+  if (I.mobileBelowOnly && small) {
+    layout = "single";
+    spots.length = 0;
+    spots.push("below");
+  } else {
+    layout = random(IVY_LAYOUTS.filter(l => l !== lastIvyLayout));
+  }
   lastIvyLayout = layout;
 
   let vines;
@@ -1669,9 +1696,9 @@ function ivyLeafOutline() {
   return pts;
 }
 
-// css barva s alfou 0..1 z hex stringu (pro kreslení přes drawingContext)
-function colStr(hex, a) {
-  const c = color(hex);
+// css barva s alfou 0..1 z hex stringu nebo p5.Color (pro drawingContext)
+function colStr(c0, a) {
+  const c = typeof c0 === "string" ? color(c0) : c0;
   return "rgba(" + Math.round(red(c)) + "," + Math.round(green(c)) + ","
     + Math.round(blue(c)) + "," + Math.max(0, Math.min(1, a)) + ")";
 }
@@ -1684,6 +1711,11 @@ function drawIvyLeafAt(x, y, ang, size, scl, alpha, seed) {
   const I = CONFIG.ivy;
   const ctx = drawingContext;
   const pts = ivyLeafOutline();
+  // výplně přimíchané k jarní zeleni podle CONFIG.ivy.leafSpring
+  const fillLight = lerpColor(color(I.leafFillLight),
+    color(I.leafSpringLight), I.leafSpring);
+  const fillDark = lerpColor(color(I.leafFillDark),
+    color(I.leafSpringDark), I.leafSpring);
 
   push();
   translate(x, y);
@@ -1696,7 +1728,7 @@ function drawIvyLeafAt(x, y, ang, size, scl, alpha, seed) {
   ctx.moveTo(pts[0].x, pts[0].y);
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
   ctx.closePath();
-  ctx.fillStyle = colStr(I.leafFillLight, alpha);
+  ctx.fillStyle = colStr(fillLight, alpha);
   ctx.fill();
   ctx.clip();
   for (let k = 0; k < 7; k++) {
@@ -1706,7 +1738,7 @@ function drawIvyLeafAt(x, y, ang, size, scl, alpha, seed) {
     const dark = noise(seed, k * 3 + 7) > 0.35; // tmavé skvrny + pár světlých
     ctx.beginPath();
     ctx.ellipse(bx, by, br, br * 0.75, noise(seed, k) * 3, 0, TWO_PI);
-    ctx.fillStyle = dark ? colStr(I.leafFillDark, alpha * 0.85)
+    ctx.fillStyle = dark ? colStr(fillDark, alpha * 0.85)
                          : colStr(I.veinColor, alpha * 0.5);
     ctx.fill();
   }

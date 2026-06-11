@@ -1,12 +1,7 @@
-# ROM předlohy (copyright — nepatří do repa)
-*.rom
-
-# referenční obrázky (stock fotky s vodoznakem)
-brectan.png
-
 # vygenerované screenshoty ze smoke testu
 test/*.png
 
 # případné lokální závislosti / pomocné soubory
 node_modules/
 .pr-desc.md
+.idea/

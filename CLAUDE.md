@@ -157,7 +157,12 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
 - **Břečťan (FEATURE FLAG `CONFIG.ivy.enabled`)** — procedurální větvička
   podle (neviditelné) vodící linky, předloha `brectan.png` (v repu není,
   jen lokálně). **Layout náhodně, nikdy stejný dvakrát po sobě**
-  (`IVY_LAYOUTS`/`lastIvyLayout`): `single` (jedna větvička pod/vedle),
+  (`IVY_LAYOUTS`/`lastIvyLayout`); na MALÉ OBRAZOVCE (`mobileBelowOnly`,
+  menší strana < `mobileMaxSide`) vždy jen jedna větvička POD citátem
+  (ostatní varianty se na mobil nevejdou — feedback autora). Sytost
+  zeleně listů řídí `leafSpring` (0 = původní šedozelená dle předlohy,
+  1 = plná jarní zeleň `leafSpringLight/Dark`; připomínky ⇒ 0.45).
+  Varianty: `single` (jedna větvička pod/vedle),
   `multi` (2–3 větvičky), `wreath` (klikatý věnec kolem dokola — body
   paprskem na obvod obdélníku, jitter jen VEN, A↔B mezera `gapRad*`,
   listy dovnitř menší ×0.75, na úzkém displeji globální `leafScale`),
