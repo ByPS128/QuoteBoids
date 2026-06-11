@@ -5,3 +5,6 @@ test/*.png
 node_modules/
 .pr-desc.md
 .idea/
+
+# uložené podklady z rešerší (cizí obsah — nepatří do veřejného repa)
+union.html

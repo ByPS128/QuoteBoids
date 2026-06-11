@@ -345,6 +345,15 @@ QUOTES.cs = [
   // latinské klasiky — záměrně v latině (stejné v obou jazykových sadách)
   { text: "Cogito, ergo sum.", author: "René Descartes" },
   { text: "Veni, vidi, vici.", author: "Julius Caesar" },
+  // další silné citáty
+  { text: "Více trpíme ve své představivosti než ve skutečnosti.", author: "Lucius Annaeus Seneca" },
+  { text: "Nikdy není pozdě stát se tím, kým jste mohli být.", author: "připisováno George Eliot" },
+  { text: "Náš život je tím, co z něj tvoří naše myšlenky.", author: "Marcus Aurelius" },
+  { text: "Myslet je těžké; proto nechává dav vynášet soudy.", author: "Carl Gustav Jung" },
+  { text: "Budeš-li se starat o to, co si myslí ostatní, navždy zůstaneš jejich vězněm.", author: "připisováno Lao-c’" },
+  { text: "Hlupáka poznáte podle řečí, moudrého člověka podle ticha.", author: "připisováno Pythagorovi" },
+  { text: "Pokud jsi nejchytřejší člověk v místnosti, jsi ve špatné místnosti.", author: "neznámý autor" },
+  { text: "Čím tišší se staneš, tím více dokážeš slyšet.", author: "připisováno Ram Dassovi / Rumimu" },
 ];
 
 QUOTES.en = [

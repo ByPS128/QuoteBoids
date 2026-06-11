@@ -167,8 +167,9 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
   `scene.autoNextMs` klidu (interakce odkládají přes `lastInteractionMs`)
   sám spustí další citát. 0 = vypnuto.
 - **Břečťan (FEATURE FLAG `CONFIG.ivy.enabled`)** — procedurální větvička
-  podle (neviditelné) vodící linky, předloha `brectan.png` (v repu není,
-  jen lokálně). **Layout náhodně, nikdy stejný dvakrát po sobě**
+  podle (neviditelné) vodící linky; tvar listu je čistě parametrický
+  (vizuální předloha z vývoje byla smazána, do repa nikdy nepatřila).
+  **Layout náhodně, nikdy stejný dvakrát po sobě**
   (`IVY_LAYOUTS`/`lastIvyLayout`); na MALÉ OBRAZOVCE (`mobileBelowOnly`,
   menší strana < `mobileMaxSide`) vždy jen jedna větvička POD citátem
   (ostatní varianty se na mobil nevejdou — feedback autora). Sytost

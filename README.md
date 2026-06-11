@@ -92,6 +92,22 @@ Vlastní font: nastavit `CONFIG.quote.fontFile` na cestu k `.ttf`/`.otf`
 souboru (načte se přes `loadFont()`); jinak se použije web-safe font
 z `CONFIG.quote.font`.
 
+## Inspirace a poděkování
+
+Mechanika skládání nápisu po písmenech je poctou titulní obrazovce her
+**Miner 2049er** (1982) a **Bounty Bob Strikes Back!** (1984) od Big Five
+Software (Bill Hogue) pro počítače Atari — tam písmena titulku nosil
+ptáček, a byla to nádhera.
+
+Tento projekt **není nijak spojen** s Atari, Big Five Software ani autory
+původních her a **nepoužívá** z nich žádný kód, grafiku, zvuky ani jiná
+aktiva — veškerá grafika i zvuk vznikly procedurálně od nuly. Názvy her
+jsou zmíněny pouze jako odkaz na zdroj inspirace.
+
+Citáty jsou krátké, obecně známé výroky uvedené s autorem; u výroků
+s nejistým původem je uvedeno „připisováno". Postaveno na
+[p5.js](https://p5js.org/).
+
 ## Testy
 
 - `node --check sketch.js` — kontrola syntaxe.
