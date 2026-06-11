@@ -116,6 +116,8 @@ const CONFIG = {
     spawnStaggerMsMax: 1500,       // max odstup prvních spawnů
     waitMsMin: 1000,               // min čekání mimo obrazovku mezi písmeny
     waitMsMax: 4000,               // max čekání mimo obrazovku
+    departStaggerMs: 150,          // rozptyl startu z bydýlka při novém citátu
+                                   // (0–tolik ms; ať nestartují jak na povel)
   },
 
   // --- Let: fyzika (jednotky px/frame při 60 fps) ---
@@ -235,16 +237,21 @@ const CONFIG = {
       popMs: 180,                // nafouknutí balónku (scale 0 → 1)
       tailMs: 4500,              // dojezd po startu posledního řádku
       lighten: 0.35,             // o kolik světlejší než barvy ptáčků
+      fillAlpha: 0.8,            // průhlednost výplně balónku (překryvy
+                                 // vypadají lépe, balónky bývají průsvitné)
+      authorFadeMs: 400,         // autor balónek nedostane — ve svém čase se
+                                 // vytratí fade outem (zadání: ~250–500 ms)
       // FINÁLNÍ GAG: jeden ptáček vzlétne z hradu a propíchne balónek
       // zobáčkem — prásk, písmeno padá gravitací, ostatní se rozprchnou.
       // Spouští se VŽDY, když tranzice běží a na hradě někdo sedí
       // (balónky samy jsou vzácné, další náhoda by gag pohřbila).
       pop: {
         enabled: true,           // feature flag celého gagu
-        atMsMin: 300,            // kdy nejdřív lovec vyrazí (po startu tranzice)
-        atMsMax: 800,            // kdy nejpozději (balónky rychle stoupají!)
-        speedBoost: 1.6,         // lovec letí rychleji než v běžném provozu
+        // rebel startuje OKAMŽITĚ se zjevením balónků (jinak je nedožene)
+        speedBoost: 1.8,         // rebel letí výjimečně rychle
         radius: 18,              // jak blízko zobáček musí být, aby prásklo
+        deflectDegMin: 5,        // po prásknutí jen lehce změní směr…
+        deflectDegMax: 20,       // …max o tolik stupňů (žádná zaječí klička)
         panicMs: 1500,           // jak dlouho jsou ostatní splašení (rychlejší let)
         panicBoost: 1.5,         // násobek rychlosti splašených ptáčků
       },
@@ -528,8 +535,10 @@ function startScene(firstRun) {
       birds.push(new Bird(i, delay));
     }
   } else {
-    // při balónkové tranzici si jeden sedící ptáček (lovec) počká na hradě
-    // a v náhodný čas vyrazí prásknout balónek — viz popBalloon
+    // při balónkové tranzici vyrazí jeden sedící ptáček (rebel) OKAMŽITĚ
+    // prásknout balónek; ostatní sedící zůstanou na bydýlku a rozletí se
+    // až po prásknutí, všichni naráz (viz popBalloon) — jiná choreografie
+    // než u ostatních tranzic
     let hunter = null;
     const P = CONFIG.transition.balloons.pop;
     if (P.enabled && outgoing && outgoing.type === "balloons") {
@@ -538,10 +547,7 @@ function startScene(firstRun) {
         hunter = random(seated);
         const target = pickPopTarget(hunter);
         if (target) {
-          hunter.huntPlan = {
-            at: millis() + random(P.atMsMin, P.atMsMax),
-            item: target,
-          };
+          hunter.huntPlan = { at: millis(), item: target }; // start hned
         } else {
           hunter = null;
         }
@@ -549,17 +555,29 @@ function startScene(firstRun) {
     }
 
     // reset: ptáčci na scéně (typicky na hradě) odletí doleva a vrátí se
-    // s písmeny nového citátu; kdo je mimo obrazovku, jen dostane novou pauzu
+    // s písmeny nového citátu; starty mají náhodný rozptyl (departStaggerMs,
+    // první má nulu — ať to není jak povel na olympiádě). Kdo je mimo
+    // obrazovku, jen dostane novou pauzu.
     let delay = 0;
+    let firstStart = true;
     for (const b of birds) {
-      if (b === hunter) continue; // lovec zůstává na hradě a číhá
-      b.letter = null;
+      if (b === hunter) continue; // rebel číhá / už letí na balónek
       delay += random(CONFIG.birds.spawnStaggerMsMin, CONFIG.birds.spawnStaggerMsMax);
       if (b.state === S.WAITING) {
+        b.letter = null;
         b.waitUntil = millis() + delay;
-      } else {
-        b.beginDeparting(delay);
+        continue;
       }
+      // sedící u balónkové scény s rebelem čekají na prásk (popBalloon je
+      // rozletí naráz; když lov nevyjde, rozpustí je releasePerchedStaggered)
+      if (hunter && (b.state === S.PERCHED || b.state === S.STRETCHING)) {
+        continue;
+      }
+      b.pendingDepart = {
+        at: millis() + (firstStart ? 0 : random(0, CONFIG.birds.departStaggerMs)),
+        extraWait: delay,
+      };
+      firstStart = false;
     }
   }
 }
@@ -735,6 +753,8 @@ class Bird {
     this.blinkUntil = 0;                  // dokdy je oko zavřené (mrknutí)
     this.huntPlan = null;                 // {at, item} — plán prásknutí balónku
     this.panicUntil = 0;                  // dokdy je ptáček splašený (po prásku)
+    this.pendingDepart = null;            // {at, extraWait} — naplánovaný odlet
+                                          // (rozptyl startu, ať to není na povel)
     // plynule dojížděné animační parametry (cíle určuje stav, viz update)
     this.tilt = CONFIG.wings.bodyTiltCruise; // aktuální náklon těla
     this.heading = 0;                     // aktuální úhel letu (vyhlazený)
@@ -842,6 +862,18 @@ class Bird {
   update(f) {
     const now = millis();
     const FL = CONFIG.flight;
+
+    // naplánovaný odlet (rozptyl startu z bydýlka): teprve TEĎ se případně
+    // odloží nesené písmeno — dřív by carrying ptáček přišel o cíl letu
+    if (this.pendingDepart && now >= this.pendingDepart.at) {
+      const pd = this.pendingDepart;
+      this.pendingDepart = null;
+      if (this.state !== S.WAITING && this.state !== S.TURNING
+          && this.state !== S.DEPARTING && this.state !== S.HUNTING) {
+        this.letter = null;
+        this.beginDeparting(pd.extraWait);
+      }
+    }
 
     switch (this.state) {
 
@@ -953,8 +985,10 @@ class Bird {
         this.steerTo(this.exit, f, CONFIG.flight.acceleration * 1.4, false);
         this.avoidOthers(f);
         this.integrate(f);
-        // pryč je i přes horní hranu (splašený útěk po prásknutí balónku)
-        if (this.pos.x < -70 || this.pos.y < -70) {
+        // pryč je kteroukoli hranou (splašený rozlet po prásknutí balónku
+        // míří všemi směry; spawn je pak vždy zase zleva)
+        if (this.pos.x < -70 || this.pos.x > width + 70
+            || this.pos.y < -70 || this.pos.y > height + 70) {
           this.setState(S.WAITING);
           // pauza mezi písmeny podle povahy: horlivec krátce, loudal déle
           this.waitUntil = now + (this.extraWait || 0)
@@ -1055,9 +1089,11 @@ class Bird {
         const valid = it && !it.popped && outgoing
           && outgoing.type === "balloons" && it.y > -40;
         if (!valid) {
-          // balónek mezitím zmizel/praskl — nech to být a odleť
+          // balónek mezitím zmizel/praskl — nech to být a odleť;
+          // čekající hejno na bydýlku se rozpustí běžným postupem
           this.huntPlan = null;
           this.beginDeparting();
+          releasePerchedStaggered();
           break;
         }
         // střed balónku (přibližně jako v drawBalloon)
@@ -1066,9 +1102,8 @@ class Bird {
         const d = this.steerTo(target, f, CONFIG.flight.acceleration * 1.6, false);
         this.integrate(f);
         if (d < CONFIG.transition.balloons.pop.radius) {
-          popBalloon(it, this);
+          popBalloon(it, this); // nastaví rebelovi výchylku směru i DEPARTING
           this.huntPlan = null;
-          this.beginDeparting();
         }
         break;
       }
@@ -1088,8 +1123,14 @@ class Bird {
     else if (braking) { freqT = W.flapFreqLanding; ampT = 1; }
     else if (pausing) { freqT = W.flapFreqLanding; ampT = 0.55; }
     const tiltT = (braking || pausing) ? W.bodyTiltLanding : W.bodyTiltCruise;
-    let headT = this.vel.mag() > 0.3
-      ? constrain(Math.atan2(this.vel.y, Math.abs(this.vel.x)), -0.9, 0.9) : 0;
+    // Úhel letu: tělo sleduje směr rychlosti — ALE při brzdění (flare) se
+    // cíl přepne na 0: skutečný pták se při dosedání vztyčí do brzdné pózy
+    // vůči ZEMI bez ohledu na směr příletu (zespodu na výškovém displeji
+    // by jinak heading + tilt složily ptáčka skoro do vertikály).
+    let headT = 0;
+    if (!braking && !pausing && this.vel.mag() > 0.3) {
+      headT = constrain(Math.atan2(this.vel.y, Math.abs(this.vel.x)), -0.9, 0.9);
+    }
 
     const ke = e => 1 - Math.pow(1 - e, f); // easing nezávislý na fps
     const E = CONFIG.anim;
@@ -1964,6 +2005,7 @@ function drawOutgoing(f) {
           break;
         case "balloons": {
           const B = T.balloons;
+          if (it.isAuthor) break; // autor neletí — vytrácí se na místě
           if (it.popped) {
             // prásklý balónek: písmeno padá, zrychluje gravitací
             it.vy += T.gravity * f;
@@ -1986,16 +2028,23 @@ function drawOutgoing(f) {
     if (it.y < -it.size * 3) continue;        // už mimo obraz nahoře
     if (it.y > height + it.size * 3) continue; // prásklé spadlo dolů
 
-    // balónek se kreslí POD písmenem v pořadí, ale NAD ním v prostoru
-    if (outgoing.type === "balloons" && started && !it.popped) {
+    // balónek se kreslí POD písmenem v pořadí, ale NAD ním v prostoru;
+    // autor balónek nedostává (vytrácí se fade outem)
+    if (outgoing.type === "balloons" && started && !it.popped && !it.isAuthor) {
       drawBalloon(it, now);
     }
 
-    // alpha: fade/rise mizí postupně, balónky letí plné až mimo obraz,
-    // gravity/scatter mizí těsně před koncem
+    // alpha: fade/rise mizí postupně, balónky letí plné až mimo obraz
+    // (jen autor se ve svém čase vytratí fade outem), gravity/scatter
+    // mizí těsně před koncem
     let alpha = 255;
     if (outgoing.type === "fade" || outgoing.type === "rise") alpha = 255 * (1 - t);
-    else if (outgoing.type !== "balloons") alpha = 255 * (1 - Math.max(0, t - 0.75) * 4);
+    else if (outgoing.type === "balloons") {
+      if (it.isAuthor && started) {
+        const fp = (now - outgoing.t0 - it.delay) / T.balloons.authorFadeMs;
+        alpha = 255 * Math.max(0, 1 - fp);
+      }
+    } else alpha = 255 * (1 - Math.max(0, t - 0.75) * 4);
     if (alpha <= 0) continue;
     fill(red(col), green(col), blue(col), alpha);
     textSize(it.size);
@@ -2029,18 +2078,22 @@ function drawBalloon(it, now) {
   push();
   translate(bx, by);
   rotate(lean);
-  // tělo balónku (lehce protáhlé) + tmavší spodek = stínování
-  fill(red(c), green(c), blue(c), 245);
+  // tělo balónku (lehce protáhlé) + tmavší spodek = stínování;
+  // výplň má drobnou průhlednost (fillAlpha) — překryvy vypadají lépe
+  const fa = 255 * B.fillAlpha;
+  fill(red(c), green(c), blue(c), fa);
   ellipse(0, 0, br * 1.72, br * 2);
-  fill(lerpColor(c, color(0, 0, 40), 0.25));
+  const shade = lerpColor(c, color(0, 0, 40), 0.25);
+  fill(red(shade), green(shade), blue(shade), fa);
   ellipse(0, br * 0.45, br * 1.3, br * 0.9);
-  fill(red(c), green(c), blue(c), 245);
+  fill(red(c), green(c), blue(c), fa);
   ellipse(0, br * 0.18, br * 1.6, br * 1.5);
   // odlesk vlevo nahoře
   fill(255, 255, 255, 150);
   ellipse(-br * 0.42, -br * 0.45, br * 0.5, br * 0.72);
   // uzlík — balónková prdelka
-  fill(lerpColor(c, color(0, 0, 40), 0.2));
+  const knot = lerpColor(c, color(0, 0, 40), 0.2);
+  fill(red(knot), green(knot), blue(knot), fa);
   triangle(-br * 0.18, br * 0.98, br * 0.18, br * 0.98, 0, br * 0.78);
   pop();
 }
@@ -2060,9 +2113,12 @@ function pickPopTarget(hunter) {
   return random(pool.slice(0, Math.min(4, pool.length)));
 }
 
-// PRÁSK! Balónek praskne (cáry letí), písmeno začne padat gravitací
-// a všichni ostatní ptáčci na scéně se leknou a splašeně se rozprchnou
-// (i přes horní hranu). Žádný další balónek už nepraskne.
+// PRÁSK! Balónek praskne (cáry letí), písmeno začne padat gravitací.
+// Rebel jen lehce vychýlí směr (max deflectDeg, žádná zaječí klička)
+// a pokračuje rovně ze scény. Všichni ostatní ptáčci se leknou
+// a rozprchnou se OKAMŽITĚ a NARÁZ, každý svým směrem (jiná
+// choreografie než postupné odlety u ostatních tranzic).
+// Žádný další balónek už nepraskne.
 function popBalloon(it, hunter) {
   const P = CONFIG.transition.balloons.pop;
   const now = millis();
@@ -2073,22 +2129,52 @@ function popBalloon(it, hunter) {
   const br = it.size * 0.38 + 6;
   spawnFeathers(it.x, it.y - it.size * 0.55 - 16 - br, it.bCol, 3);
 
+  // rebel: drobná náhodná výchylka směru a rovně pryč (bez otočky)
+  const deflect = radians(random(P.deflectDegMin, P.deflectDegMax))
+    * (random() < 0.5 ? -1 : 1);
+  hunter.vel.rotate(deflect);
+  if (hunter.vel.mag() < 3) hunter.vel.setMag(3);
+  hunter.exit = createVector(hunter.pos.x + hunter.vel.x * 400,
+    hunter.pos.y + hunter.vel.y * 400);
+  hunter.panicUntil = now + P.panicMs;
+  hunter.extraWait = 0;
+  hunter.setState(S.DEPARTING);
+
   for (const b of birds) {
     if (b === hunter || b.state === S.WAITING) continue;
     b.panicUntil = now + P.panicMs;
+    b.pendingDepart = null; // panika ruší případný naplánovaný odlet
     // kdo nese písmeno NOVÉHO citátu, upustí ho zpět do zásobníku
     // (vrátí se pro něj, až se uklidní — scéna se vždy dokončí)
     if (b.letter) {
       taskQueue.push(letters.indexOf(b.letter));
       b.letter = null;
     }
-    if (b.state !== S.DEPARTING && b.state !== S.TURNING) {
-      b.beginDeparting();
+    if (b.state === S.PERCHED || b.state === S.STRETCHING) {
+      perchSpringKick(CONFIG.perchSpring.takeoffKick, b.slot);
     }
-    // splašený útěk: někdo doleva, někdo nahoru
-    b.exit = random() < 0.5
-      ? createVector(-80, random(height * 0.1, height * 0.6))
-      : createVector(random(width * 0.2, width * 0.9), -80);
+    // okamžitý rozlet bez otočky, každý svým směrem (vějíř nahoru/do stran)
+    const ang = random(-PI * 0.92, -PI * 0.08);
+    const dir = createVector(Math.cos(ang), Math.sin(ang));
+    b.exit = createVector(b.pos.x + dir.x * 1500, b.pos.y + dir.y * 1500);
+    b.vel = dir.copy().mult(b.vMax() * 0.6);
+    b.extraWait = 0;
+    b.setState(S.DEPARTING);
+  }
+}
+
+// Pojistka: když rebel lov vzdá (balónek unikl), sedící hejno se rozpustí
+// běžným postupným odletem pro písmena nového citátu.
+function releasePerchedStaggered() {
+  let delay = 0;
+  for (const b of birds) {
+    if (b.state !== S.PERCHED && b.state !== S.STRETCHING) continue;
+    if (b.pendingDepart || b.huntPlan) continue;
+    delay += random(CONFIG.birds.spawnStaggerMsMin, CONFIG.birds.spawnStaggerMsMax);
+    b.pendingDepart = {
+      at: millis() + random(0, CONFIG.birds.departStaggerMs),
+      extraWait: delay,
+    };
   }
 }
 

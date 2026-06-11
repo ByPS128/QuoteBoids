@@ -82,7 +82,15 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
   k nim se dojíždí exponenciálním easingem (`CONFIG.anim`, fps-nezávislé
   přes `ke()`), takže změna stavu neudělá skok pózy. Otočka = squash přes
   `scale(facingSmooth,1)` s minimem ±0.08. Mimo obraz se parametry srovnají
-  skokem (nikdo to nevidí).
+  skokem (nikdo to nevidí). **Flare při brzdění:** v brzdných stavech je
+  cíl `heading` = 0 (vůči ZEMI, ne trajektorii) — při strmém příletu
+  zespodu (mobil na výšku) by jinak heading+tilt složily ptáčka do
+  vertikály; skutečný pták se při dosedání vztyčí bez ohledu na směr
+  příletu. (Varianta B — tvarování dráhy náletu — viz TODO.md.)
+- **Rozlet z bydýlka** — při novém citátu ptáčci nestartují naráz:
+  `pendingDepart = {at, extraWait}` s rozptylem 0–`birds.departStaggerMs`
+  (první má 0), odpaluje se na začátku `update()`; nesené písmeno se
+  nuluje až při odpálení (jinak by carrying ptáček přišel o cíl).
 - **Povahy** — `speedFactor` (loudal 0.8 ↔ horlivec 1.2) škáluje rychlost,
   steering, frekvenci mávání; `waitFactor` (odvozený inverzně) délku pauz.
   `CONFIG.personality`.
@@ -109,23 +117,27 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
   (akcelerace se stropem). Vítr = sdílený Perlin noise + vlastní příměs
   per balónek (`windF`, `seed`) — hýbou se podobně, ne stejně. Balónek
   kreslí `drawBalloon`: stínovaná koule s odleskem, uzlík, prohnutý
-  provázek (bezier), náklon po větru; barvy = paleta ptáčků zesvětlená
-  o `lighten`. V losování tranzic mají balónky 2× váhu. POZOR:
+  provázek (bezier), náklon po větru; výplň s průhledností `fillAlpha`
+  (překryvy); barvy = paleta ptáčků zesvětlená o `lighten`. **Autor
+  balónek nedostává** — ve svém čase (poslední řádek) se vytratí fade
+  outem za `authorFadeMs`. V losování tranzic mají balónky 2× váhu. POZOR:
   nepojmenovávat lokální proměnnou `pop` — zastíní p5 funkci `pop()`
   (stalo se, padalo to).
-- **Prásk balónku (gag, `transition.balloons.pop.enabled`)** — když běží
-  balónková tranzice a na hradě sedí ptáčci, jeden (lovec) dostane
-  `huntPlan` (v `startScene` se vynechá z odletové smyčky), v náhodný čas
-  `atMs*` vzlétne (stav `S.HUNTING`), letí na střed balónku (cíl se hýbe;
-  `pickPopTarget` preferuje nejpozději startující řádky, autora nikdy)
-  a v `radius` px ho prásknutím propíchne: `popBalloon` → `sfxPop`
-  (šumový buffer + spodní tón, `audio.popGain`), cáry přes
-  `spawnFeathers` v barvě balónku, písmeno padá gravitací (`it.popped`).
-  Ostatní ptáčci na scéně dostanou `panicUntil` (vMax × `panicBoost`),
-  nosiči vrátí písmeno do `taskQueue` (scéna se vždy dokončí!) a
-  rozprchnou se doleva i NAHORU (`DEPARTING` končí i při y < −70).
-  Žádný další balónek už nepraskne. Lovcův abort: balónek pryč/praskl →
-  `beginDeparting`.
+- **Prásk balónku (gag, `transition.balloons.pop.enabled`)** — u balónkové
+  tranzice je rozlet hejna JINÝ než jinde: rebel (náhodný sedící) vyrazí
+  OKAMŽITĚ se zjevením balónků (stav `S.HUNTING`, `speedBoost` 1.8×),
+  ostatní sedící ZŮSTANOU na bydýlku a čekají. Rebel letí na střed
+  balónku (cíl se hýbe; `pickPopTarget` preferuje nejpozději startující
+  řádky blízko hradu, autora nikdy) a v `radius` px praskne: `popBalloon`
+  → `sfxPop` (šumový buffer + spodní tón, `audio.popGain`), cáry přes
+  `spawnFeathers`, písmeno padá gravitací (`it.popped`). Rebel po prásku
+  NEZATÁČÍ — jen vychýlí směr o `deflectDeg*` (5–20°) a pokračuje rovně
+  ze scény (bez TURNING). Ostatní se rozprchnou NARÁZ, každý svým směrem
+  (vějíř nahoru/do stran, bez otočky), s `panicUntil` (vMax ×
+  `panicBoost`); nosiči vrátí písmeno do `taskQueue` (scéna se vždy
+  dokončí!). `DEPARTING` končí kteroukoli hranou. Žádný další balónek už
+  nepraskne. Abort lovu (balónek unikl) → `beginDeparting` +
+  `releasePerchedStaggered()` (čekající hejno se rozpustí běžně).
 - **Po posledním písmenu letí ptáček rovnou na hrad** (z `dropping` přímo
   `flyingToPerch` když je `taskQueue` prázdná) — odlet ze scény a návrat
   působil rušivě (feedback autora). Stejně tak: ptáček v `departing` se při
