@@ -42,7 +42,7 @@ objeví autor a ptáčci dosednou na větvičku (hrad) vpravo nahoře. Žádný 
   audio, personality, avoid, transition, palette, quote, layout, theme, ui).
   Magická čísla nepatří do kódu.
 - **`QUOTES`** — offline zásoba `{ text, author }` po jazycích
-  (`QUOTES.cs` / `QUOTES.en`, ~20 citátů každý); vybírá se náhodně z aktuální
+  (`QUOTES.cs` / `QUOTES.en`); vybírá se náhodně z aktuální
   sady, při resetu vždy jiný než aktuální.
 - **Jazyk (i18n)** — `lang` ∈ cs/en: `detectLang()` čte `localStorage`
   (klíč `quoteboids-lang`), jinak `navigator.language` (sk → cs). Texty UI
